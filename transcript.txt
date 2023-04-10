@@ -1,0 +1,90 @@
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> cat test/37.snek
+37%                                                                                                                                                                      
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> make test/37.run
+cargo run -- test/37.snek test/37.s
+    Finished dev [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/debug/adder test/37.snek test/37.s`
+nasm -f macho64 test/37.s -o runtime/our_code.o
+ar rcs runtime/libour_code.a runtime/our_code.o
+rustc -L runtime/ runtime/start.rs -o test/37.run --target x86_64-apple-darwin
+rm test/37.s
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> ./test/37.run
+37
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> cat test/add1.snek
+(add1 73)%                                                                                                                                                               
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> make test/add1.run
+cargo run -- test/add1.snek test/add1.s
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+     Running `target/debug/adder test/add1.snek test/add1.s`
+nasm -f macho64 test/add1.s -o runtime/our_code.o
+ar rcs runtime/libour_code.a runtime/our_code.o
+rustc -L runtime/ runtime/start.rs -o test/add1.run --target x86_64-apple-darwin
+rm test/add1.s
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> ./test/add1.run
+74
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> cat test/sub1.snek 
+(sub1 (sub1 0))%                                                                                                                                                         
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> make test/sub1.run
+cargo run -- test/sub1.snek test/sub1.s
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+     Running `target/debug/adder test/sub1.snek test/sub1.s`
+nasm -f macho64 test/sub1.s -o runtime/our_code.o
+ar rcs runtime/libour_code.a runtime/our_code.o
+rustc -L runtime/ runtime/start.rs -o test/sub1.run --target x86_64-apple-darwin
+rm test/sub1.s
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> ./test/sub1.run
+-2
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> cat test/add_and_sub.snek
+(sub1 (sub1 (add1 73)))%                                                                                                                                                 
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> make test/add_and_sub.run 
+cargo run -- test/add_and_sub.snek test/add_and_sub.s
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+     Running `target/debug/adder test/add_and_sub.snek test/add_and_sub.s`
+nasm -f macho64 test/add_and_sub.s -o runtime/our_code.o
+ar rcs runtime/libour_code.a runtime/our_code.o
+rustc -L runtime/ runtime/start.rs -o test/add_and_sub.run --target x86_64-apple-darwin
+rm test/add_and_sub.s
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> ./test/add_and_sub.run 
+72
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> cat test/negate.snek
+(negate (sub1 (sub1 (add1 73))))%                                                                                                                                        
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> make test/negate.run
+cargo run -- test/negate.snek test/negate.s
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+     Running `target/debug/adder test/negate.snek test/negate.s`
+nasm -f macho64 test/negate.s -o runtime/our_code.o
+ar rcs runtime/libour_code.a runtime/our_code.o
+rustc -L runtime/ runtime/start.rs -o test/negate.run --target x86_64-apple-darwin
+rm test/negate.s
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> ./test/negate.run
+-72
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> cat test/negate2.snek 
+(negate (sub1 -55))%                                                                                                                                                     
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> make test/negate2.run
+cargo run -- test/negate2.snek test/negate2.s
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+     Running `target/debug/adder test/negate2.snek test/negate2.s`
+nasm -f macho64 test/negate2.s -o runtime/our_code.o
+ar rcs runtime/libour_code.a runtime/our_code.o
+rustc -L runtime/ runtime/start.rs -o test/negate2.run --target x86_64-apple-darwin
+rm test/negate2.s
+storm_firefox1 on Storm Prism ./adder on 🌱 main [🗑📝🤷‍] via 🦀 v1.68.2 on <localhost>   
+>>> test/negate2.run
+56

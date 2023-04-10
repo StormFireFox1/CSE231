@@ -88,3 +88,7 @@ Cargo.lock
 .ionide
 
 # End of https://www.toptal.com/developers/gitignore/api/Emacs,Rust,VisualStudioCode
+# Executables and assembly files
+*.run
+*.o
+*.a
