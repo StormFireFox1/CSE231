@@ -159,5 +159,5 @@ pub fn instrs_to_string(instrs: &Vec<Instr>) -> String {
 }
 
 pub fn compile(e: &Expr) -> String {
-    instrs_to_string(&&compile_instructions(e, 2, &im::HashMap::new()))
+    instrs_to_string(&compile_instructions(e, 2, &im::HashMap::new()))
 }
