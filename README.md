@@ -5,6 +5,8 @@ The programming language implementations for CSE 131/231, now in Rust!
 Note this repo will contain all iterations, and tag each "final" release
 of each programming language appropriately.
 
+The current version of the language is Boa.
+
 ## Usage
 
 Note this repo is currently only functional without changes on M1 MacBooks.
@@ -22,3 +24,8 @@ brew install nasm
 make test/add1.run
 ./test/add1.run
 ```
+
+## Credits
+
+[This Edstem post](https://edstem.org/us/courses/38748/discussion/2976772) yielded
+a bugfix for one of the tests related to the "let" construct.
