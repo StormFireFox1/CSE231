@@ -2,22 +2,103 @@ mod infra;
 
 // Your tests go here!
 success_tests! {
-    number: "37",
-    add1: "73",
-    sub1: "-2",
-    add: "15",
-    add_and_sub: "72",
-    nested_arith: "25",
-    binding: "5",
-    multiple_correct_binds: "6",
-    nested_binds: "12",
-    bind_chain: "5",
-    shadow_bind: "12",
-    bind_in_funny_place: "7",
+    {
+        name: number,
+        file: "number.snek",
+        expected: "37",
+    },
+    {
+        name: add1,
+        file: "add1.snek",
+        expected: "73",
+    },
+    {
+        name: sub1,
+        file: "sub1.snek",
+        expected: "-2",
+    },
+    {
+        name: add_and_sub,
+        file: "add_and_sub.snek",
+        expected: "72",
+    },
+    {
+        name: nested_arith,
+        file: "nested_arith.snek",
+        expected: "25",
+    },
+    {
+        name: multiple_correct_binds,
+        file: "multiple_correct_binds.snek",
+        expected: "6",
+    },
+    {
+        name: nested_binds,
+        file: "nested_binds.snek",
+        expected: "12",
+    },
+    {
+        name: bind_chain,
+        file: "bind_chain.snek",
+        expected: "5",
+    },
+    {
+        name: shadow_bind,
+        file: "shadow_bind.snek",
+        expected: "12",
+    },
+    {
+        name: bind_in_funny_place,
+        file: "bind_in_funny_place.snek",
+        expected: "7",
+    },
+    {
+        name: input_compare_1,
+        file: "input_compare.snek",
+        input: "2",
+        expected: "false",
+    },
+    {
+        name: input_compare_2,
+        file: "input_compare.snek",
+        input: "10",
+        expected: "true",
+    },
 }
 
-failure_tests! {
-    unbound_id: "Unbound variable identifier x",
-    duplicate_binding: "Duplicate binding",
-    parse_let_fail: "Invalid expression provided"
+runtime_error_tests! {
+    {
+        name: invalid_argument,
+        file: "invalid_argument.snek",
+        expected: "invalid argument",
+    },
+    {
+        name: input_compare_3,
+        file: "input_compare.snek",
+        input: "true",
+        expected: "invalid argument",
+    },
+}
+
+static_error_tests! {
+    {
+        name: unbound_id,
+        file: "unbound_id.snek",
+        expected: "Unbound variable identifier x",
+    },
+    {
+        name: duplicate_binding,
+        file: "duplicate_binding.snek",
+        expected: "Duplicate binding",
+    },
+    {
+        name: parse_let_fail,
+        file: "parse_let_fail.snek",
+        expected: "Invalid",
+    },
+    {
+        name: number_bounds_fail,
+        file: "number_bounds_fail.snek",
+        expected: "Invalid",
+    },
 }
