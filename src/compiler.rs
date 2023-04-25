@@ -3,6 +3,8 @@ use sexp::*;
 
 use crate::spec::*;
 
+const KEYWORDS: [&str; 19] = ["add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "isnum", "isbool", "loop", "break", "set!", "if"];
+
 enum Type {
     Number,
     Bool,
@@ -99,7 +101,13 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 Box::new(parse_expr(e1)),
                 Box::new(parse_expr(e2)),
             ),
-            [Sexp::Atom(S(op)), Sexp::Atom(S(id)), e] if op == "set!" => Expr::Set(id.to_string(), Box::new(parse_expr(e))), 
+            [Sexp::Atom(S(op)), Sexp::Atom(S(id)), e] if op == "set!" => {
+                if id == "input" {
+                    panic!("Invalid expression provided")
+                } else {
+                    Expr::Set(id.to_string(), Box::new(parse_expr(e)))
+                }
+            }, 
             [Sexp::Atom(S(op)), e1, e2, e3] if op == "if" => Expr::If(
                 Box::new(parse_expr(e1)),
                 Box::new(parse_expr(e2)),
@@ -109,14 +117,12 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 Expr::Break(Box::new(parse_expr(e)))
             },
             [Sexp::Atom(S(op)), e] if op == "loop" => {
-                Expr::Break(Box::new(parse_expr(e)))
+                Expr::Loop(Box::new(parse_expr(e)))
             },
-            [Sexp::Atom(S(op)), es] if op == "block" => {
+            [Sexp::Atom(S(op)), es @ ..] if op == "block" => {
                 let mut exprs: Vec<Expr> = Vec::new();
-                if let Sexp::List(exps) = es {
-                    for e in exps {
-                        exprs.push(parse_expr(e));
-                    }
+                for expr in es {
+                    exprs.push(parse_expr(expr));
                 }
                 Expr::Block(exprs)
             },
@@ -133,9 +139,9 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                                 [Sexp::Atom(S(id)), e] => {
                                     // If it happens that the bind ID is some stupid
                                     // name like let or add1 or any other Boa keyword, eject.
-                                    if ["add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "isnum", "isbool", "loop", "break", "set!", "if"].contains(&id.as_str())
+                                    if KEYWORDS.contains(&id.as_str())
                                     {
-                                        panic!("Invalid expression provided");
+                                        panic!("Invalid expression provided: used reserved keyword in let binding");
                                     }
                                     bind_expr.push((id.to_string(), parse_expr(e)));
                                 }
