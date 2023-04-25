@@ -64,6 +64,28 @@ success_tests! {
         input: "10",
         expected: "true",
     },
+    {
+        name: let_and_set,
+        file: "let_and_set.snek",
+        expected: "6",
+    },
+    {
+        name: big_loop,
+        file: "big_loop.snek",
+        expected: "-6",
+    },
+    {
+        name: input_factorial_2,
+        file: "input_factorial.snek",
+        input: "2",
+        expected: "2",
+    },
+    {
+        name: input_factorial_7,
+        file: "input_factorial.snek",
+        input: "7",
+        expected: "5040",
+    },
 }
 
 runtime_error_tests! {
