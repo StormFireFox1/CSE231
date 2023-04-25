@@ -263,7 +263,7 @@ pub fn compile_instructions(
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
                     result.append(&mut vec![
-                        Instr::ICmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si * 8)),
+                        Instr::ICmp(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
                         Instr::ICMovG(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX))
@@ -273,7 +273,7 @@ pub fn compile_instructions(
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
                     result.append(&mut vec![
-                        Instr::ICmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si * 8)),
+                        Instr::ICmp(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
                         Instr::ICMovGE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX))
@@ -283,7 +283,7 @@ pub fn compile_instructions(
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
                     result.append(&mut vec![
-                        Instr::ICmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si * 8)),
+                        Instr::ICmp(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
                         Instr::ICMovL(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX))
@@ -293,7 +293,7 @@ pub fn compile_instructions(
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
                     result.append(&mut vec![
-                        Instr::ICmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si * 8)),
+                        Instr::ICmp(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
                         Instr::ICMovLE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX))
@@ -343,6 +343,7 @@ pub fn compile_instructions(
             result.push(Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(1)));
             result.push(Instr::IJe(else_label.clone()));
             result.append(&mut then_instrs);
+            result.push(Instr::IJmp(end_label.clone()));
             result.push(Instr::ILabel(else_label.to_string()));
             result.append(&mut alt_instrs);
             result.push(Instr::ILabel(end_label.to_string()));
@@ -394,7 +395,7 @@ pub fn instrs_to_string(instrs: &Vec<Instr>) -> String {
 }
 
 pub fn compile(e: &Expr) -> String {
-    let prelude: String = String::from("mov [rsp - 16], rdi\n");
+    let prelude: String = String::from("mov [RSP - 16], RDI\n  ");
     let mut env: im::HashMap<String, i32> = im::HashMap::new();
     let mut label: i32 = 1;
     env.insert("input".to_string(), 16);
