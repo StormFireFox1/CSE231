@@ -34,6 +34,7 @@ fn assert_type(val: Val, t: Type) -> Vec<Instr> {
 }
 
 pub fn parse_expr(s: &Sexp) -> Expr {
+   println!("Parsing {:?}", s);
     match s {
         Sexp::Atom(a) => match a {
             S(string) => {
@@ -358,9 +359,10 @@ pub fn compile_instructions(
         Expr::Loop(e) => {
             let start_loop_label = new_label(l, "loop_start");
             let end_loop_label = new_label(l, "loop_end");
-            let mut e_instrs = compile_instructions(e, si, env, &mut (*l + 1), &start_loop_label.to_string());
+            let mut e_instrs = compile_instructions(e, si, env, &mut (*l + 1), &end_loop_label.to_string());
             result.push(Instr::ILabel(start_loop_label.to_string()));
             result.append(&mut e_instrs);
+            result.push(Instr::IJmp(Val::Label(start_loop_label.to_string())));
             result.push(Instr::ILabel(end_loop_label.to_string()));
 
         },
@@ -370,6 +372,7 @@ pub fn compile_instructions(
             }
             let mut e_instrs = compile_instructions(e, si, env, &mut (*l + 1), "");
             result.append(&mut e_instrs);
+            result.push(Instr::IJmp(Val::Label(target.to_string())));
         },
         Expr::Set(id, e) => {
             result.append(&mut compile_instructions(e, si, env, l, target));
@@ -401,6 +404,7 @@ pub fn instrs_to_string(instrs: &Vec<Instr>) -> String {
 }
 
 pub fn compile(e: &Expr) -> String {
+    println!("{:?}", e);
     let prelude: String = String::from("mov [RSP - 16], RDI\n  ");
     let mut env: im::HashMap<String, i32> = im::HashMap::new();
     let mut label: i32 = 1;
