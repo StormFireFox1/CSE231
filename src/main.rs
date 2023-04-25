@@ -23,10 +23,23 @@ fn main() -> std::io::Result<()> {
     let asm_program = format!(
         "
 section .text
+extern snek_error
 global our_code_starts_here
 our_code_starts_here:
   {}
   ret
+not_bool_err:
+  mov rdi, 1
+  call snek_error
+not_num_err:
+  mov rdi, 2
+  call snek_error
+invalid_arg_err:
+  mov rdi, 3
+  call snek_error
+overflow_err:
+  mov rdi, 4
+  call snek_error
 ",
         result
     );
