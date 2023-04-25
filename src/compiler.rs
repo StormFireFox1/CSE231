@@ -3,7 +3,7 @@ use sexp::*;
 
 use crate::spec::*;
 
-const KEYWORDS: [&str; 19] = ["add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "isnum", "isbool", "loop", "break", "set!", "if"];
+const KEYWORDS: [&str; 20] = ["add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "input", "isnum", "isbool", "loop", "break", "set!", "if"];
 
 enum Type {
     Number,
@@ -203,16 +203,16 @@ pub fn compile_instructions(
                 Op1::IsNum => {
                     result.append(&mut vec![Instr::IAnd(Val::Reg(Reg::RAX),Val::Imm(1)),  
                     Instr::ICmp(Val::Reg(Reg::RAX),Val::Imm(0)),
+                    Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                     Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
-                    Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(1)),
                     Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ]);
                 },
                 Op1::IsBool => {
                     result.append(&mut vec![Instr::IAnd(Val::Reg(Reg::RAX),Val::Imm(1)),  
                     Instr::ICmp(Val::Reg(Reg::RAX),Val::Imm(1)),
+                    Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                     Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
-                    Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(1)),
                     Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ]);
                 },
@@ -232,12 +232,14 @@ pub fn compile_instructions(
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
                     result.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si * 8)))
+                    result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
                     
                 }
                 Op2::Minus => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
                     result.push(Instr::ISub(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)));
+                    result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
                     result.push(Instr::IMov(
                         Val::Reg(Reg::RAX),
                         Val::RegOffset(Reg::RSP, si * 8),
