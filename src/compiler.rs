@@ -34,9 +34,15 @@ fn assert_type(val: Val, t: Type) -> Vec<Instr> {
 pub fn parse_expr(s: &Sexp) -> Expr {
     match s {
         Sexp::Atom(a) => match a {
-            S(string) => Expr::Id(string.to_string()),
+            S(string) => {
+                match string.as_str() {
+                    "true" => Expr::Boolean(true),
+                    "false" => Expr::Boolean(false),
+                    _ => Expr::Id(string.to_string()),
+                }
+            },
             I(imm) => Expr::Number(i32::try_from(*imm).unwrap_or_else(|_| {
-                panic!("Provided immediate does not fit in i32 bit immediate: {imm}")
+                panic!("Invalid immediate: does not fit in i32 bits: {imm}")
             }).into()),
             F(_) => panic!("Floats not implemented in Boa!"),
         },
@@ -46,7 +52,13 @@ pub fn parse_expr(s: &Sexp) -> Expr {
             }
             [Sexp::Atom(S(op)), e] if op == "sub1" => {
                 Expr::UnOp(Op1::Sub1, Box::new(parse_expr(e)))
-            }
+            },
+            [Sexp::Atom(S(op)), e] if op == "isnum" => {
+                Expr::UnOp(Op1::IsNum, Box::new(parse_expr(e)))
+            },
+            [Sexp::Atom(S(op)), e] if op == "isbool" => {
+                Expr::UnOp(Op1::IsBool, Box::new(parse_expr(e)))
+            },
             [Sexp::Atom(S(op)), e1, e2] if op == "+" => Expr::BinOp(
                 Op2::Plus,
                 Box::new(parse_expr(e1)),
@@ -62,6 +74,52 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 Box::new(parse_expr(e1)),
                 Box::new(parse_expr(e2)),
             ),
+            [Sexp::Atom(S(op)), e1, e2] if op == "<" => Expr::BinOp(
+                Op2::Less,
+                Box::new(parse_expr(e1)),
+                Box::new(parse_expr(e2)),
+            ),
+            [Sexp::Atom(S(op)), e1, e2] if op == ">" => Expr::BinOp(
+                Op2::Greater,
+                Box::new(parse_expr(e1)),
+                Box::new(parse_expr(e2)),
+            ),
+            [Sexp::Atom(S(op)), e1, e2] if op == ">=" => Expr::BinOp(
+                Op2::GreaterOrEqual,
+                Box::new(parse_expr(e1)),
+                Box::new(parse_expr(e2)),
+            ),
+            [Sexp::Atom(S(op)), e1, e2] if op == "<=" => Expr::BinOp(
+                Op2::LessOrEqual,
+                Box::new(parse_expr(e1)),
+                Box::new(parse_expr(e2)),
+            ),
+            [Sexp::Atom(S(op)), e1, e2] if op == "=" => Expr::BinOp(
+                Op2::Equal,
+                Box::new(parse_expr(e1)),
+                Box::new(parse_expr(e2)),
+            ),
+            [Sexp::Atom(S(op)), Sexp::Atom(S(id)), e] if op == "set!" => Expr::Set(id.to_string(), Box::new(parse_expr(e))), 
+            [Sexp::Atom(S(op)), e1, e2, e3] if op == "if" => Expr::If(
+                Box::new(parse_expr(e1)),
+                Box::new(parse_expr(e2)),
+                Box::new(parse_expr(e3)),
+            ),
+            [Sexp::Atom(S(op)), e] if op == "break" => {
+                Expr::Break(Box::new(parse_expr(e)))
+            },
+            [Sexp::Atom(S(op)), e] if op == "loop" => {
+                Expr::Break(Box::new(parse_expr(e)))
+            },
+            [Sexp::Atom(S(op)), es] if op == "block" => {
+                let mut exprs: Vec<Expr> = Vec::new();
+                if let Sexp::List(exps) = es {
+                    for e in exps {
+                        exprs.push(parse_expr(e));
+                    }
+                }
+                Expr::Block(exprs)
+            },
             [Sexp::Atom(S(op)), e1, e2] if op == "let" => {
                 let mut bind_expr: Vec<(String, Expr)> = Vec::new();
                 // e1 should be a vector of other bindings, so:
