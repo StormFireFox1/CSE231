@@ -3,7 +3,8 @@ use sexp::*;
 
 use crate::spec::*;
 
-const INT_63_BIT_MAX: i64 = 4611686018427387904;
+const INT_63_BIT_MIN: i64 = -4_611_686_018_427_387_904;
+const INT_63_BIT_MAX: i64 = 4_611_686_018_427_387_903;
 const KEYWORDS: [&str; 20] = ["add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "input", "isnum", "isbool", "loop", "break", "set!", "if"];
 
 enum Type {
@@ -35,7 +36,6 @@ fn assert_type(val: Val, t: Type) -> Vec<Instr> {
 }
 
 pub fn parse_expr(s: &Sexp) -> Expr {
-   println!("Parsing {:?}", s);
     match s {
         Sexp::Atom(a) => match a {
             S(string) => {
@@ -46,7 +46,7 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 }
             },
             I(imm) => {
-                if *imm <= -INT_63_BIT_MAX || *imm >= INT_63_BIT_MAX {
+                if *imm < INT_63_BIT_MIN || *imm > INT_63_BIT_MAX {
                     panic!("Invalid immediate: overflows out of 63 bits: {imm}")
                 }
                 Expr::Number(i64::try_from(*imm).unwrap_or_else(|_| {
