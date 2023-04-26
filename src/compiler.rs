@@ -231,7 +231,7 @@ pub fn compile_instructions(
                 Op2::Plus => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
-                    result.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si * 8)))
+                    result.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si * 8)));
                     result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
                     
                 }
@@ -239,7 +239,7 @@ pub fn compile_instructions(
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
                     result.push(Instr::ISub(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)));
-                    result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
+                    result.push(Instr::IJo(Val::Label("overflow_err".to_string())));
                     result.push(Instr::IMov(
                         Val::Reg(Reg::RAX),
                         Val::RegOffset(Reg::RSP, si * 8),
