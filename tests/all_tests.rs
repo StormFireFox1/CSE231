@@ -91,7 +91,12 @@ success_tests! {
         file: "negative_input_cmp.snek",
         input: "-5",
         expected: "true",
-    }
+    },
+    {
+        name: big_mul,
+        file: "big_mul.snek",
+        expected: "-4611686018427387904"
+    },
 }
 
 runtime_error_tests! {
@@ -121,6 +126,16 @@ runtime_error_tests! {
         file: "sub_overflow.snek",
         expected: "overflow",
     },
+    {
+        name: invalid_argument_comparison,
+        file: "invalid_argument_cmp.snek",
+        expected: "invalid argument",
+    },
+    {
+        name: mul_overflow,
+        file: "mul_overflow.snek",
+        expected: "overflow"
+    }
 }
 
 static_error_tests! {
