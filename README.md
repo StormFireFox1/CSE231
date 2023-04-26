@@ -29,3 +29,7 @@ cargo test -- --test-threads 1
 
 - [This Edstem post](https://edstem.org/us/courses/38748/discussion/2976772) yielded
 a bugfix for one of the tests related to the "let" construct in the Boa version of the language.
+- [This Edstem post](https://edstem.org/us/courses/38748/discussion/3020429) provided
+useful tests for overflow issues
+- Yuchen Jing provided me with the tip of checking for stack alignment, which prompted the fix
+of ensuring the stack pointer was pushed to the stack before calling `snek_error`.
