@@ -100,6 +100,11 @@ runtime_error_tests! {
         input: "true",
         expected: "invalid argument",
     },
+    {
+        name: add1_boolean,
+        file: "add1_boolean.snek",
+        expected: "invalid argument",
+    }
 }
 
 static_error_tests! {

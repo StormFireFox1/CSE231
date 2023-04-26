@@ -3,7 +3,7 @@ use sexp::*;
 
 use crate::spec::*;
 
-const INT_63_BIT_MAX: i64 = 4611686020000000000;
+const INT_63_BIT_MAX: i64 = 4611686018427387904;
 const KEYWORDS: [&str; 20] = ["add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "input", "isnum", "isbool", "loop", "break", "set!", "if"];
 
 enum Type {
@@ -46,7 +46,7 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 }
             },
             I(imm) => {
-                if *imm < -INT_63_BIT_MAX || *imm > INT_63_BIT_MAX {
+                if *imm <= -INT_63_BIT_MAX || *imm >= INT_63_BIT_MAX {
                     panic!("Invalid immediate: overflows out of 63 bits: {imm}")
                 }
                 Expr::Number(i64::try_from(*imm).unwrap_or_else(|_| {
@@ -204,10 +204,12 @@ pub fn compile_instructions(
                 Op1::Add1 => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(2)));
+                    result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
                 }
                 Op1::Sub1 => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.push(Instr::ISub(Val::Reg(Reg::RAX), Val::Imm(2)));
+                    result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
                 }
                 Op1::IsNum => {
                     result.append(&mut vec![Instr::IAnd(Val::Reg(Reg::RAX),Val::Imm(1)),  
