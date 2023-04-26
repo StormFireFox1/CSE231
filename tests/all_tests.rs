@@ -135,6 +135,11 @@ runtime_error_tests! {
         name: mul_overflow,
         file: "mul_overflow.snek",
         expected: "overflow"
+    },
+    {
+        name: bad_equal,
+        file: "bad_equal.snek",
+        expected: "invalid argument",
     }
 }
 
