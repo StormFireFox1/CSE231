@@ -5,7 +5,10 @@ use crate::spec::*;
 
 const INT_63_BIT_MIN: i64 = -4_611_686_018_427_387_904;
 const INT_63_BIT_MAX: i64 = 4_611_686_018_427_387_903;
-const KEYWORDS: [&str; 20] = ["add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "input", "isnum", "isbool", "loop", "break", "set!", "if"];
+const KEYWORDS: [&str; 20] = [
+    "add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "input",
+    "isnum", "isbool", "loop", "break", "set!", "if",
+];
 
 enum Type {
     Number,
@@ -15,7 +18,7 @@ enum Type {
 fn new_label(l: &mut i32, s: &str) -> crate::spec::Val {
     let current = *l;
     *l += 1;
-    Val::Label(format! ("{s}_{current}"))
+    Val::Label(format!("{s}_{current}"))
 }
 
 fn assert_type(val: Val, t: Type) -> Vec<Instr> {
@@ -30,7 +33,7 @@ fn assert_type(val: Val, t: Type) -> Vec<Instr> {
         Type::Bool => {
             instrs.push(Instr::ICmp(Val::Reg(Reg::RBX), Val::Imm(1)));
             instrs.push(Instr::IJne(Val::Label("not_bool_err".to_string())));
-        },
+        }
     }
     instrs
 }
@@ -38,21 +41,17 @@ fn assert_type(val: Val, t: Type) -> Vec<Instr> {
 pub fn parse_expr(s: &Sexp) -> Expr {
     match s {
         Sexp::Atom(a) => match a {
-            S(string) => {
-                match string.as_str() {
-                    "true" => Expr::Boolean(true),
-                    "false" => Expr::Boolean(false),
-                    _ => Expr::Id(string.to_string()),
-                }
+            S(string) => match string.as_str() {
+                "true" => Expr::Boolean(true),
+                "false" => Expr::Boolean(false),
+                _ => Expr::Id(string.to_string()),
             },
             I(imm) => {
                 if *imm < INT_63_BIT_MIN || *imm > INT_63_BIT_MAX {
                     panic!("Invalid immediate: overflows out of 63 bits: {imm}")
                 }
-                Expr::Number(i64::try_from(*imm).unwrap_or_else(|_| {
-                    panic!("Invalid immediate: does not fit in i64 bits: {imm}")
-                }).into())
-            },
+                Expr::Number(*imm)
+            }
             F(_) => panic!("Floats not implemented in Boa!"),
         },
         Sexp::List(vec) => match &vec[..] {
@@ -61,13 +60,13 @@ pub fn parse_expr(s: &Sexp) -> Expr {
             }
             [Sexp::Atom(S(op)), e] if op == "sub1" => {
                 Expr::UnOp(Op1::Sub1, Box::new(parse_expr(e)))
-            },
+            }
             [Sexp::Atom(S(op)), e] if op == "isnum" => {
                 Expr::UnOp(Op1::IsNum, Box::new(parse_expr(e)))
-            },
+            }
             [Sexp::Atom(S(op)), e] if op == "isbool" => {
                 Expr::UnOp(Op1::IsBool, Box::new(parse_expr(e)))
-            },
+            }
             [Sexp::Atom(S(op)), e1, e2] if op == "+" => Expr::BinOp(
                 Op2::Plus,
                 Box::new(parse_expr(e1)),
@@ -114,28 +113,24 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 } else {
                     Expr::Set(id.to_string(), Box::new(parse_expr(e)))
                 }
-            }, 
+            }
             [Sexp::Atom(S(op)), e1, e2, e3] if op == "if" => Expr::If(
                 Box::new(parse_expr(e1)),
                 Box::new(parse_expr(e2)),
                 Box::new(parse_expr(e3)),
             ),
-            [Sexp::Atom(S(op)), e] if op == "break" => {
-                Expr::Break(Box::new(parse_expr(e)))
-            },
-            [Sexp::Atom(S(op)), e] if op == "loop" => {
-                Expr::Loop(Box::new(parse_expr(e)))
-            },
+            [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_expr(e))),
+            [Sexp::Atom(S(op)), e] if op == "loop" => Expr::Loop(Box::new(parse_expr(e))),
             [Sexp::Atom(S(op)), es @ ..] if op == "block" => {
                 let mut exprs: Vec<Expr> = Vec::new();
-                if es.len() == 0 {
+                if es.is_empty() {
                     panic!("Invalid expression provided");
                 }
                 for expr in es {
                     exprs.push(parse_expr(expr));
                 }
                 Expr::Block(exprs)
-            },
+            }
             [Sexp::Atom(S(op)), e1, e2] if op == "let" => {
                 let mut bind_expr: Vec<(String, Expr)> = Vec::new();
                 // e1 should be a vector of other bindings, so:
@@ -149,8 +144,7 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                                 [Sexp::Atom(S(id)), e] => {
                                     // If it happens that the bind ID is some stupid
                                     // name like let or add1 or any other Boa keyword, eject.
-                                    if KEYWORDS.contains(&id.as_str())
-                                    {
+                                    if KEYWORDS.contains(&id.as_str()) {
                                         panic!("Invalid expression provided: used reserved keyword in let binding");
                                     }
                                     bind_expr.push((id.to_string(), parse_expr(e)));
@@ -212,21 +206,23 @@ pub fn compile_instructions(
                     result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
                 }
                 Op1::IsNum => {
-                    result.append(&mut vec![Instr::IAnd(Val::Reg(Reg::RAX),Val::Imm(1)),  
-                    Instr::ICmp(Val::Reg(Reg::RAX),Val::Imm(0)),
-                    Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
-                    Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
-                    Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
+                    result.append(&mut vec![
+                        Instr::IAnd(Val::Reg(Reg::RAX), Val::Imm(1)),
+                        Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(0)),
+                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
+                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
+                        Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ]);
-                },
+                }
                 Op1::IsBool => {
-                    result.append(&mut vec![Instr::IAnd(Val::Reg(Reg::RAX),Val::Imm(1)),  
-                    Instr::ICmp(Val::Reg(Reg::RAX),Val::Imm(1)),
-                    Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
-                    Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
-                    Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
+                    result.append(&mut vec![
+                        Instr::IAnd(Val::Reg(Reg::RAX), Val::Imm(1)),
+                        Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(1)),
+                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
+                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
+                        Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ]);
-                },
+                }
             }
         }
         Expr::BinOp(op, e1, e2) => {
@@ -241,28 +237,45 @@ pub fn compile_instructions(
             match op {
                 Op2::Plus => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
-                    result.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si * 8)));
+                    result.append(&mut assert_type(
+                        Val::RegOffset(Reg::RSP, si * 8),
+                        Type::Number,
+                    ));
+                    result.push(Instr::IAdd(
+                        Val::Reg(Reg::RAX),
+                        Val::RegOffset(Reg::RSP, si * 8),
+                    ));
                     result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
-                    
                 }
                 Op2::Minus => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
-                    result.push(Instr::ISub(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)));
+                    result.append(&mut assert_type(
+                        Val::RegOffset(Reg::RSP, si * 8),
+                        Type::Number,
+                    ));
+                    result.push(Instr::ISub(
+                        Val::RegOffset(Reg::RSP, si * 8),
+                        Val::Reg(Reg::RAX),
+                    ));
                     result.push(Instr::IJo(Val::Label("overflow_err".to_string())));
                     result.push(Instr::IMov(
                         Val::Reg(Reg::RAX),
                         Val::RegOffset(Reg::RSP, si * 8),
                     ))
-                },
+                }
                 Op2::Times => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
+                    result.append(&mut assert_type(
+                        Val::RegOffset(Reg::RSP, si * 8),
+                        Type::Number,
+                    ));
                     result.push(Instr::ISar(Val::Reg(Reg::RAX), Val::Imm(1)));
-                    result.push(Instr::IMul(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si * 8)));
+                    result.push(Instr::IMul(
+                        Val::Reg(Reg::RAX),
+                        Val::RegOffset(Reg::RSP, si * 8),
+                    ));
                     result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
-                },
+                }
                 Op2::Equal => {
                     // Check if both types are equal. If not, throw the "Invalid argument error".
                     result.append(&mut vec![
@@ -276,49 +289,61 @@ pub fn compile_instructions(
                         Instr::ICmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si * 8)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
-                        Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX))
+                        Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ])
-                },
+                }
                 Op2::Greater => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
+                    result.append(&mut assert_type(
+                        Val::RegOffset(Reg::RSP, si * 8),
+                        Type::Number,
+                    ));
                     result.append(&mut vec![
                         Instr::ICmp(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
-                        Instr::ICMovG(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX))
+                        Instr::ICMovG(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ])
-                },
+                }
                 Op2::GreaterOrEqual => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
+                    result.append(&mut assert_type(
+                        Val::RegOffset(Reg::RSP, si * 8),
+                        Type::Number,
+                    ));
                     result.append(&mut vec![
                         Instr::ICmp(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
-                        Instr::ICMovGE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX))
+                        Instr::ICMovGE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ])
-                },
+                }
                 Op2::Less => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
+                    result.append(&mut assert_type(
+                        Val::RegOffset(Reg::RSP, si * 8),
+                        Type::Number,
+                    ));
                     result.append(&mut vec![
                         Instr::ICmp(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
-                        Instr::ICMovL(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX))
+                        Instr::ICMovL(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ])
-                },
+                }
                 Op2::LessOrEqual => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(Val::RegOffset(Reg::RSP, si * 8), Type::Number));
+                    result.append(&mut assert_type(
+                        Val::RegOffset(Reg::RSP, si * 8),
+                        Type::Number,
+                    ));
                     result.append(&mut vec![
                         Instr::ICmp(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
-                        Instr::ICMovLE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX))
+                        Instr::ICMovLE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ])
-                },
+                }
             }
         }
         Expr::Let(v, e) => {
@@ -337,7 +362,7 @@ pub fn compile_instructions(
                     new_stack_offset,
                     &with_binds_env,
                     l,
-                    target
+                    target,
                 ));
                 result.push(Instr::IMov(
                     Val::RegOffset(Reg::RSP, new_stack_offset * 8),
@@ -350,7 +375,8 @@ pub fn compile_instructions(
                 .clone()
                 .intersection(env.clone())
                 .union(new_binds.clone().difference(env.clone()));
-            let mut new_instrs = compile_instructions(e, new_stack_offset, &with_binds_env, l, target);
+            let mut new_instrs =
+                compile_instructions(e, new_stack_offset, &with_binds_env, l, target);
             result.append(&mut new_instrs);
         }
         Expr::If(cond, then, alt) => {
@@ -367,26 +393,25 @@ pub fn compile_instructions(
             result.push(Instr::ILabel(else_label.to_string()));
             result.append(&mut alt_instrs);
             result.push(Instr::ILabel(end_label.to_string()));
-            
-        },
+        }
         Expr::Loop(e) => {
             let start_loop_label = new_label(l, "loop_start");
             let end_loop_label = new_label(l, "loop_end");
-            let mut e_instrs = compile_instructions(e, si, env, &mut (*l + 1), &end_loop_label.to_string());
+            let mut e_instrs =
+                compile_instructions(e, si, env, &mut (*l + 1), &end_loop_label.to_string());
             result.push(Instr::ILabel(start_loop_label.to_string()));
             result.append(&mut e_instrs);
             result.push(Instr::IJmp(Val::Label(start_loop_label.to_string())));
             result.push(Instr::ILabel(end_loop_label.to_string()));
-
-        },
+        }
         Expr::Break(e) => {
-            if target == "" {
+            if target.is_empty() {
                 panic!("break outside of loop");
             }
             let mut e_instrs = compile_instructions(e, si, env, &mut (*l + 1), "");
             result.append(&mut e_instrs);
             result.push(Instr::IJmp(Val::Label(target.to_string())));
-        },
+        }
         Expr::Set(id, e) => {
             result.append(&mut compile_instructions(e, si, env, l, target));
             result.push(Instr::IMov(
