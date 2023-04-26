@@ -3,6 +3,7 @@ use sexp::*;
 
 use crate::spec::*;
 
+const INT_63_BIT_MAX: i64 = 4611686020000000000;
 const KEYWORDS: [&str; 20] = ["add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "input", "isnum", "isbool", "loop", "break", "set!", "if"];
 
 enum Type {
@@ -44,9 +45,14 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                     _ => Expr::Id(string.to_string()),
                 }
             },
-            I(imm) => Expr::Number(i32::try_from(*imm).unwrap_or_else(|_| {
-                panic!("Invalid immediate: does not fit in i32 bits: {imm}")
-            }).into()),
+            I(imm) => {
+                if *imm < -INT_63_BIT_MAX || *imm > INT_63_BIT_MAX {
+                    panic!("Invalid immediate: overflows out of 63 bits: {imm}")
+                }
+                Expr::Number(i64::try_from(*imm).unwrap_or_else(|_| {
+                    panic!("Invalid immediate: does not fit in i64 bits: {imm}")
+                }).into())
+            },
             F(_) => panic!("Floats not implemented in Boa!"),
         },
         Sexp::List(vec) => match &vec[..] {
@@ -122,6 +128,9 @@ pub fn parse_expr(s: &Sexp) -> Expr {
             },
             [Sexp::Atom(S(op)), es @ ..] if op == "block" => {
                 let mut exprs: Vec<Expr> = Vec::new();
+                if es.len() == 0 {
+                    panic!("Invalid expression provided");
+                }
                 for expr in es {
                     exprs.push(parse_expr(expr));
                 }

@@ -123,4 +123,9 @@ static_error_tests! {
         file: "number_bounds_fail.snek",
         expected: "Invalid",
     },
+    {
+        name: bad_block,
+        file: "bad_block.snek",
+        expected: "Invalid",
+    }
 }
