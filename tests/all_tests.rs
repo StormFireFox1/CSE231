@@ -86,6 +86,12 @@ success_tests! {
         input: "7",
         expected: "5040",
     },
+    {
+        name: negative_input_comparison,
+        file: "negative_input_cmp.snek",
+        input: "-5",
+        expected: "true",
+    }
 }
 
 runtime_error_tests! {
@@ -104,7 +110,17 @@ runtime_error_tests! {
         name: add1_boolean,
         file: "add1_boolean.snek",
         expected: "invalid argument",
-    }
+    },
+    {
+        name: add1_overflow,
+        file: "add1_overflow.snek",
+        expected: "overflow",
+    },
+    {
+        name: sub_overflow,
+        file: "sub_overflow.snek",
+        expected: "overflow",
+    },
 }
 
 static_error_tests! {

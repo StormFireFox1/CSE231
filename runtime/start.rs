@@ -1,12 +1,15 @@
 use std::env;
 
+const INT_63_BIT_MIN: i64 = -4_611_686_018_427_387_904;
+const INT_63_BIT_MAX: i64 = 4_611_686_018_427_387_903;
+
 #[link(name = "our_code")]
 extern "C" {
     // The \x01 here is an undocumented feature of LLVM that ensures
     // it does not add an underscore in front of the name.
     // Courtesy of Max New (https://maxsnew.com/teaching/eecs-483-fa22/hw_adder_assignment.html)
     #[link_name = "\x01our_code_starts_here"]
-    fn our_code_starts_here(input: u64) -> i64;
+    fn our_code_starts_here(input: i64) -> i64;
 }
 
 #[export_name = "\x01snek_error"]
@@ -21,13 +24,17 @@ pub extern "C" fn snek_error(errcode: i64) {
     std::process::exit(1);
 }
 
-fn parse_input(input: &str) -> u64 {
+fn parse_input(input: &str) -> i64 {
     if input == "false" {
         1
     } else if input == "true" {
         3
     } else {
-        input.parse::<u64>().unwrap() << 1
+        let i = input.parse::<i64>().unwrap_or_else(|_| { panic!("overflow"); }) << 1;
+        if i < INT_63_BIT_MIN || i > INT_63_BIT_MAX {
+            panic!("overflow")
+        }
+        i
     }
 }
 
