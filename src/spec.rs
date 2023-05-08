@@ -13,6 +13,11 @@ pub enum Reg {
     RAX,
     RBX,
     RCX,
+    RDX,
+    RSI,
+    R8,
+    R9,
+    R15,
     RSP,
     RDI,
 }
@@ -39,6 +44,7 @@ pub enum Instr {
     IJl(Val),
     IJo(Val),
     IJmp(Val),
+    ICall(Val),
     ILabel(String),
 }
 
@@ -48,6 +54,7 @@ pub enum Op1 {
     Sub1,
     IsNum,
     IsBool,
+    Print,
 }
 
 #[derive(Debug)]
@@ -60,6 +67,17 @@ pub enum Op2 {
     GreaterOrEqual,
     Less,
     LessOrEqual,
+}
+
+pub struct Program {
+    pub definitions: Vec<Definition>,
+    pub main: Expr,
+}
+
+pub struct Definition {
+    pub name: String,
+    pub params: Vec<String>,
+    pub body: Expr,
 }
 
 #[derive(Debug)]
@@ -75,6 +93,7 @@ pub enum Expr {
     Break(Box<Expr>),
     Set(String, Box<Expr>),
     Block(Vec<Expr>),
+    Call(String, Vec<Expr>),
 }
 
 impl Display for Val {
@@ -82,7 +101,10 @@ impl Display for Val {
         match self {
             Val::Reg(r) => r.fmt(f),
             Val::Imm(imm) => f.write_str(&format!("{}", imm)),
-            Val::RegOffset(reg, offset) => f.write_str(&format!("[{reg} - {offset}]")),
+            Val::RegOffset(reg, offset) => {
+                let output = if *offset >= 0 { format!("[{reg} - {offset}]") } else { format!("[{} + {}]", reg, -offset) };
+                f.write_str(&output)
+            },
             Val::Label(label) => f.write_str(&format!("{label}")),
         }
     }
@@ -96,6 +118,12 @@ impl Display for Reg {
             Reg::RCX => f.write_str("RCX"),
             Reg::RSP => f.write_str("RSP"),
             Reg::RDI => f.write_str("RDI"),
+            Reg::RDX => f.write_str("RDX"),
+            Reg::RSI => f.write_str("RSI"),
+            Reg::R8 => f.write_str("R8"),
+            Reg::R9 => f.write_str("R9"),
+            Reg::R15 => f.write_str("R15"),
+            
         }
     }
 }
@@ -115,6 +143,7 @@ impl Display for Instr {
             Instr::IJl(label) => f.write_str(&format!("jl  near {label}")),
             Instr::IJo(label) => f.write_str(&format!("jo  near {label}")),
             Instr::IJmp(label) => f.write_str(&format!("jmp near {label}")),
+            Instr::ICall(label) => f.write_str(&format!("call {label}")),
             Instr::IShr(val1, val2) => f.write_str(&format!("shr {val1}, {val2}")),
             Instr::IShl(val1, val2) => f.write_str(&format!("shl {val1}, {val2}")),
             Instr::ISar(val1, val2) => f.write_str(&format!("sar {val1}, {val2}")),

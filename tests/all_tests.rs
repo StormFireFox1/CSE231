@@ -97,6 +97,17 @@ success_tests! {
         file: "big_mul.snek",
         expected: "-4611686018427387904"
     },
+    {
+        name: print_default,
+        file: "print.snek",
+        expected: "false\nfalse",
+    },
+    {
+        name: print_number,
+        file: "print.snek",
+        input: "-5",
+        expected: "-5\n-5",
+    },
 }
 
 runtime_error_tests! {

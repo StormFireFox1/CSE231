@@ -24,6 +24,17 @@ pub extern "C" fn snek_error(errcode: i64) {
     std::process::exit(1);
 }
 
+#[export_name = "\x01snek_print"]
+pub extern "C" fn snek_print(value: i64) -> i64 {
+    if value == 3 { println!("true"); }
+    else if value == 1 { println!("false"); }
+    else if value % 2 == 0 { println!("{}", value >> 1); }
+    else {
+        println!("Unknown value: {}", value);
+    }
+    return value;
+}
+
 fn parse_input(input: &str) -> i64 {
     if input == "false" {
         1

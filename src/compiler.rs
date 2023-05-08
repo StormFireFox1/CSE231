@@ -5,9 +5,9 @@ use crate::spec::*;
 
 const INT_63_BIT_MIN: i64 = -4_611_686_018_427_387_904;
 const INT_63_BIT_MAX: i64 = 4_611_686_018_427_387_903;
-const KEYWORDS: [&str; 20] = [
+const KEYWORDS: [&str; 22] = [
     "add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "input",
-    "isnum", "isbool", "loop", "break", "set!", "if",
+    "isnum", "isbool", "loop", "break", "set!", "if", "fun", "print"
 ];
 
 enum Type {
@@ -67,6 +67,9 @@ pub fn parse_expr(s: &Sexp) -> Expr {
             [Sexp::Atom(S(op)), e] if op == "isbool" => {
                 Expr::UnOp(Op1::IsBool, Box::new(parse_expr(e)))
             }
+            [Sexp::Atom(S(op)), e] if op == "print" => {
+                Expr::UnOp(Op1::Print, Box::new(parse_expr(e)))
+            }
             [Sexp::Atom(S(op)), e1, e2] if op == "+" => Expr::BinOp(
                 Op2::Plus,
                 Box::new(parse_expr(e1)),
@@ -108,7 +111,7 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 Box::new(parse_expr(e2)),
             ),
             [Sexp::Atom(S(op)), Sexp::Atom(S(id)), e] if op == "set!" => {
-                if id == "input" {
+                if KEYWORDS.contains(&id.as_str()) {
                     panic!("Invalid expression provided")
                 } else {
                     Expr::Set(id.to_string(), Box::new(parse_expr(e)))
@@ -222,7 +225,19 @@ pub fn compile_instructions(
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
                         Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ]);
-                }
+                },
+                Op1::Print => {
+                    let index = if si % 2 == 1 { si + 2 } else { si + 1 };
+                    let offset = index * 8;
+                    result.append(&mut vec![
+                        Instr::ISub(Val::Reg(Reg::RSP), Val::Imm(offset.into())),
+                        Instr::IMov(Val::RegOffset(Reg::RSP, 0), Val::Reg(Reg::RDI)),
+                        Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)),
+                        Instr::ICall(Val::Label("snek_print".to_string())),
+                        Instr::IMov(Val::Reg(Reg::RDI), Val::RegOffset(Reg::RSP, 0)),
+                        Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(offset.into())),
+                    ]);
+                },
             }
         }
         Expr::BinOp(op, e1, e2) => {
@@ -427,7 +442,8 @@ pub fn compile_instructions(
             for e in v {
                 result.append(&mut compile_instructions(e, si, env, l, target));
             }
-        }
+        },
+        Expr::Call(_, _) => todo!(),
     };
     result
 }
