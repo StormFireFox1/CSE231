@@ -1,7 +1,9 @@
 use sexp::parse;
+use spec::{Definition, Program};
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
+use pcre::Pcre;
 
 use crate::compiler::*;
 
@@ -18,8 +20,32 @@ fn main() -> std::io::Result<()> {
     let mut in_contents = String::new();
     in_file.read_to_string(&mut in_contents)?;
 
-    let expr = parse_expr(&parse(&in_contents).expect("Invalid expression provided"));
-    let result = compile(&expr);
+    // We need to extract the separate blocks of s-exps, since `sexp` doesn't process
+    // multiple s-expressions at once. Use regex pattern that recursively matches for furthest
+    // matching parentheses in the input. Use PCRE, because it's a regex library
+    // that properly manages recursion and doesn't have a terrible looking regex.
+    //
+    // Regex pattern from StackOverflow: https://stackoverflow.com/questions/546433/regular-expression-to-match-balanced-parentheses
+    // Tested with https://regexr.com
+    let mut fun_main_regex = Pcre::compile(r"\((?:[^)(]+|(?R))*+\)").unwrap();
+    let mut exps = fun_main_regex.matches(&in_contents).peekable();
+
+    let mut program = Program {
+        definitions: Vec::new(),
+        main: Box::new(spec::Expr::Number(131)),
+    };
+
+    while let Some(exp) = exps.next() {
+      // Check if this is the last value. If it is, we're parsing the main expression.
+      if exps.peek().is_none() {
+        program.main = Box::new(parse_expr(&parse(&exp.group(0)).unwrap()));
+        break;
+      }
+      // Otherwise, just parse definition of function.
+      let sexp = parse(&exp.group(0)).unwrap();
+      program.definitions.push(parse_def(&sexp));
+    }
+    let result = compile(&program.main);
     let asm_program = format!(
         "
 section .text

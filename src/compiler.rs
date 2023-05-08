@@ -38,6 +38,51 @@ fn assert_type(val: Val, t: Type) -> Vec<Instr> {
     instrs
 }
 
+pub fn parse_def(s: &Sexp) -> Definition {
+    if let Sexp::List(def_list) = s {
+        if def_list.len() != 3 {
+            panic!("Invalid expression provided: alleged definition does not have all required components");
+        }
+        // Check if the first value is the "fun" keyword.
+        if def_list[0] != Sexp::Atom(S("fun".to_owned())) {
+            panic!("Invalid expression provided: alleged definition does not start with 'fun' keyword");
+        }
+        
+        let mut fun_name: String = String::new();
+        let mut args = Vec::new();
+        // Parse the second value, which should be a list with a bunch of string atoms.
+        if let Sexp::List(vec) = &def_list[1] {
+            match &vec[..] {
+                [Sexp::Atom(S(name)), arguments @ ..] => {
+                    fun_name = name.to_string();
+                    for arg in arguments {
+                        if let Sexp::Atom(S(arg_name)) = arg {
+                            args.push(arg_name.clone());
+                        } else {
+                            panic!("Invalid expression provided: alleged definition's arguments are not strings!")
+                        }
+                    }
+                },
+                _ => {
+                    panic!("Invalid expression provided: alleged definition does not contain a set of strings!")
+                }
+            }
+        } else {
+            panic!("Invalid expression provided: alleged definition does not have a function name and argument list")
+        }
+
+        // Parse the main expression as well now.
+        let body = parse_expr(&def_list[2]);
+        return Definition {
+            name: fun_name,
+            params: args,
+            body: Box::new(body),
+        }
+    } else {
+        panic!("Invalid expression provided: alleged definition is not a list");
+    }
+}
+
 pub fn parse_expr(s: &Sexp) -> Expr {
     match s {
         Sexp::Atom(a) => match a {
@@ -164,6 +209,10 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 } else {
                     panic!("Invalid expression provided");
                 }
+            },
+            [Sexp::Atom(S(func)), args @ ..] => {
+                let exprs = args.iter().map(|x| parse_expr(x)).collect::<Vec<Expr>>();
+                Expr::Call(func.to_string(), exprs)
             }
             _ => panic!("Invalid expression provided"),
         },
@@ -458,7 +507,6 @@ pub fn instrs_to_string(instrs: &Vec<Instr>) -> String {
 }
 
 pub fn compile(e: &Expr) -> String {
-    println!("{:?}", e);
     let prelude: String = String::from("mov [RSP - 16], RDI\n  ");
     let mut env: im::HashMap<String, i32> = im::HashMap::new();
     let mut label: i32 = 1;

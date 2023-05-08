@@ -69,15 +69,17 @@ pub enum Op2 {
     LessOrEqual,
 }
 
+#[derive(Debug)]
 pub struct Program {
     pub definitions: Vec<Definition>,
-    pub main: Expr,
+    pub main: Box<Expr>,
 }
 
+#[derive(Debug)]
 pub struct Definition {
     pub name: String,
     pub params: Vec<String>,
-    pub body: Expr,
+    pub body: Box<Expr>,
 }
 
 #[derive(Debug)]
