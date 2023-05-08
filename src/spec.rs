@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use im::HashMap;
+
 #[derive(Debug, Clone)]
 pub enum Val {
     Reg(Reg),
@@ -48,7 +50,7 @@ pub enum Instr {
     ILabel(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Op1 {
     Add1,
     Sub1,
@@ -57,7 +59,7 @@ pub enum Op1 {
     Print,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Op2 {
     Plus,
     Minus,
@@ -69,20 +71,20 @@ pub enum Op2 {
     LessOrEqual,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Program {
-    pub definitions: Vec<Definition>,
+    pub definitions: HashMap<String, Definition>,
     pub main: Box<Expr>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Definition {
     pub name: String,
     pub params: Vec<String>,
     pub body: Box<Expr>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Number(i64),
     Boolean(bool),

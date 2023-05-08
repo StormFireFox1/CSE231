@@ -27,12 +27,12 @@ fn main() -> std::io::Result<()> {
     //
     // Regex pattern from StackOverflow: https://stackoverflow.com/questions/546433/regular-expression-to-match-balanced-parentheses
     // Tested with https://regexr.com
-    let mut fun_main_regex = Pcre::compile(r"\((?:[^)(]+|(?R))*+\)").unwrap();
-    let mut exps = fun_main_regex.matches(&in_contents).peekable();
+    let mut blocks_regex = Pcre::compile(r"\((?:[^)(]+|(?R))*+\)").unwrap();
+    let mut exps = blocks_regex.matches(&in_contents).peekable();
 
     let mut program = Program {
-        definitions: Vec::new(),
-        main: Box::new(spec::Expr::Number(131)),
+        definitions: im::HashMap::new(),
+        main: Box::new(spec::Expr::Number(1)),
     };
 
     while let Some(exp) = exps.next() {
@@ -43,9 +43,19 @@ fn main() -> std::io::Result<()> {
       }
       // Otherwise, just parse definition of function.
       let sexp = parse(&exp.group(0)).unwrap();
-      program.definitions.push(parse_def(&sexp));
+      let def = parse_def(&sexp);
+      program.definitions = program.definitions.update(def.name.clone(), def);
     }
-    let result = compile(&program.main);
+
+    // If there are no matches, the above loop would have not ran. 
+    // That means we have some kind of primitive value. Just
+    // parse the entire input and save that to Program.
+    let mut blocks_regex = Pcre::compile(r"\((?:[^)(]+|(?R))*+\)").unwrap();
+    if blocks_regex.matches(&in_contents).count() == 0 {
+        program.main = Box::new(parse_expr(&parse(&in_contents).unwrap()));
+    }
+
+    let result = compile(&program);
     let asm_program = format!(
         "
 section .text

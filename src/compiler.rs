@@ -219,12 +219,13 @@ pub fn parse_expr(s: &Sexp) -> Expr {
     }
 }
 
-pub fn compile_instructions(
+pub fn compile_main(
     e: &Expr,
     si: i32,
     env: &im::HashMap<String, i32>,
     l: &mut i32,
     target: &str,
+    defs: &im::HashMap<String, Definition>,
 ) -> Vec<Instr> {
     let mut result: Vec<Instr> = Vec::new();
     match e {
@@ -244,7 +245,7 @@ pub fn compile_instructions(
             ),
         )),
         Expr::UnOp(op, e) => {
-            let mut instrs = compile_instructions(e, si, env, l, target);
+            let mut instrs = compile_main(e, si, env, l, target, defs);
             result.append(&mut instrs);
             match op {
                 Op1::Add1 => {
@@ -290,8 +291,8 @@ pub fn compile_instructions(
             }
         }
         Expr::BinOp(op, e1, e2) => {
-            let mut v1 = compile_instructions(e1, si, env, l, target);
-            let mut v2 = compile_instructions(e2, si + 1, env, l, target);
+            let mut v1 = compile_main(e1, si, env, l, target, defs);
+            let mut v2 = compile_main(e2, si + 1, env, l, target, defs);
             result.append(&mut v1);
             result.push(Instr::IMov(
                 Val::RegOffset(Reg::RSP, si * 8),
@@ -421,12 +422,13 @@ pub fn compile_instructions(
                 if new_binds.contains_key(&tuple.0) {
                     panic!("Duplicate binding");
                 }
-                result.append(&mut compile_instructions(
+                result.append(&mut compile_main(
                     &tuple.1,
                     new_stack_offset,
                     &with_binds_env,
                     l,
                     target,
+                    defs,
                 ));
                 result.push(Instr::IMov(
                     Val::RegOffset(Reg::RSP, new_stack_offset * 8),
@@ -440,15 +442,15 @@ pub fn compile_instructions(
                 .intersection(env.clone())
                 .union(new_binds.clone().difference(env.clone()));
             let mut new_instrs =
-                compile_instructions(e, new_stack_offset, &with_binds_env, l, target);
+                compile_main(e, new_stack_offset, &with_binds_env, l, target, defs);
             result.append(&mut new_instrs);
         }
         Expr::If(cond, then, alt) => {
             let end_label = new_label(l, "if_end");
             let else_label = new_label(l, "if_else");
-            let mut cond_instrs = compile_instructions(cond, si, env, &mut (*l + 1), target);
-            let mut then_instrs = compile_instructions(then, si, env, &mut (*l + 2), target);
-            let mut alt_instrs = compile_instructions(alt, si, env, &mut (*l + 3), target);
+            let mut cond_instrs = compile_main(cond, si, env, &mut (*l + 1), target, defs);
+            let mut then_instrs = compile_main(then, si, env, &mut (*l + 2), target, defs);
+            let mut alt_instrs = compile_main(alt, si, env, &mut (*l + 3), target, defs);
             result.append(&mut cond_instrs);
             result.push(Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(1)));
             result.push(Instr::IJe(else_label.clone()));
@@ -462,7 +464,7 @@ pub fn compile_instructions(
             let start_loop_label = new_label(l, "loop_start");
             let end_loop_label = new_label(l, "loop_end");
             let mut e_instrs =
-                compile_instructions(e, si, env, &mut (*l + 1), &end_loop_label.to_string());
+                compile_main(e, si, env, &mut (*l + 1), &end_loop_label.to_string(), defs);
             result.push(Instr::ILabel(start_loop_label.to_string()));
             result.append(&mut e_instrs);
             result.push(Instr::IJmp(Val::Label(start_loop_label.to_string())));
@@ -472,12 +474,12 @@ pub fn compile_instructions(
             if target.is_empty() {
                 panic!("break outside of loop");
             }
-            let mut e_instrs = compile_instructions(e, si, env, &mut (*l + 1), "");
+            let mut e_instrs = compile_main(e, si, env, &mut (*l + 1), "", defs);
             result.append(&mut e_instrs);
             result.push(Instr::IJmp(Val::Label(target.to_string())));
         }
         Expr::Set(id, e) => {
-            result.append(&mut compile_instructions(e, si, env, l, target));
+            result.append(&mut compile_main(e, si, env, l, target, defs));
             result.push(Instr::IMov(
                 Val::RegOffset(
                     Reg::RSP,
@@ -489,7 +491,7 @@ pub fn compile_instructions(
         }
         Expr::Block(v) => {
             for e in v {
-                result.append(&mut compile_instructions(e, si, env, l, target));
+                result.append(&mut compile_main(e, si, env, l, target, defs));
             }
         },
         Expr::Call(_, _) => todo!(),
@@ -506,10 +508,11 @@ pub fn instrs_to_string(instrs: &Vec<Instr>) -> String {
     result.trim_end().to_string()
 }
 
-pub fn compile(e: &Expr) -> String {
+pub fn compile(p: &Program) -> String {
     let prelude: String = String::from("mov [RSP - 16], RDI\n  ");
     let mut env: im::HashMap<String, i32> = im::HashMap::new();
     let mut label: i32 = 1;
+    // Pass the function definitions using a separate variable for compile_main.
     env.insert("input".to_string(), 16);
-    prelude + &instrs_to_string(&compile_instructions(e, 3, &env, &mut label, ""))
+    prelude + &instrs_to_string(&compile_main(&p.main, 3, &env, &mut label, "", &p.definitions))
 }
