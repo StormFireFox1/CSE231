@@ -47,6 +47,8 @@ pub enum Instr {
     IJo(Val),
     IJmp(Val),
     ICall(Val),
+    IPush(Val),
+    IPop(Val),
     ILabel(String),
     IRet(),
 }
@@ -152,6 +154,8 @@ impl Display for Instr {
             Instr::IJo(label) => f.write_str(&format!("  jo  near {label}")),
             Instr::IJmp(label) => f.write_str(&format!("  jmp near {label}")),
             Instr::ICall(label) => f.write_str(&format!("  call {label}")),
+            Instr::IPush(val) => f.write_str(&format!("  push {val}")),
+            Instr::IPop(val) => f.write_str(&format!("  pop {val}")),
             Instr::IShr(val1, val2) => f.write_str(&format!("  shr {val1}, {val2}")),
             Instr::IShl(val1, val2) => f.write_str(&format!("  shl {val1}, {val2}")),
             Instr::ISar(val1, val2) => f.write_str(&format!("  sar {val1}, {val2}")),

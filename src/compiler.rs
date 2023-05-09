@@ -357,7 +357,9 @@ pub fn compile_main(
                         Instr::ISub(Val::Reg(Reg::RSP), Val::Imm(offset)),
                         Instr::IMov(Val::RegOffset(Reg::RSP, 0), Val::Reg(Reg::RDI)),
                         Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)),
+                        Instr::IPush(Val::Reg(Reg::RSP)),
                         Instr::ICall(Val::Label("snek_print".to_string())),
+                        Instr::IPop(Val::Reg(Reg::RSP)),
                         Instr::IMov(Val::Reg(Reg::RDI), Val::RegOffset(Reg::RSP, 0)),
                         Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(offset)),
                     ]);
