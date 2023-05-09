@@ -18,6 +18,14 @@ fn round_up(n: i64) -> i64 {
     }
 }
 
+fn align_to_16(n: i64) -> i64 {
+    if n % 2 == 0 {
+        n + 2
+    } else {
+        n + 1
+    }
+}
+
 enum Type {
     Number,
     Bool,
@@ -266,7 +274,7 @@ fn depth(e: &Expr) -> i64 {
 pub fn compile_definitions(defs: &im::HashMap<String, Definition>, label: &mut i64) -> Vec<Instr> {
     let mut instrs: Vec<Instr> = Vec::new();
     for (_, def) in defs.iter() {
-        let depth = depth(&def.body);
+        let depth = align_to_16(depth(&def.body));
         let offset: i64 = depth * 8;
         let mut func_env: im::HashMap<String, i64> = im::HashMap::new();
         for (i, arg) in def.params.iter().enumerate() {
@@ -343,7 +351,7 @@ pub fn compile_main(
                     ]);
                 }
                 Op1::Print => {
-                    let index = if si % 2 == 1 { si + 2 } else { si + 1 };
+                    let index = align_to_16(si);
                     let offset = index * 8;
                     result.append(&mut vec![
                         Instr::ISub(Val::Reg(Reg::RSP), Val::Imm(offset)),
@@ -603,7 +611,7 @@ pub fn instrs_to_string(instrs: &Vec<Instr>) -> String {
 
 pub fn compile(p: &Program) -> String {
     let depth = depth(&p.main);
-    let offset = round_up(depth + 1) * 8;
+    let offset = align_to_16(depth + 1) * 8;
     let prelude: String =
         format!("our_code_starts_here:\n  sub RSP, {offset}\n  mov [RSP + 8], RDI\n");
     let postlude: String = format!("  add RSP, {offset}\n  ret\n");
