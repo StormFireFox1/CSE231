@@ -1,5 +1,4 @@
 use im::HashSet;
-use regex::Regex;
 use sexp::parse;
 use spec::Program;
 use std::env;

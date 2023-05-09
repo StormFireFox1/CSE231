@@ -10,14 +10,6 @@ const KEYWORDS: [&str; 22] = [
     "isnum", "isbool", "loop", "break", "set!", "if", "fun", "print",
 ];
 
-fn round_up(n: i64) -> i64 {
-    if n % 2 == 1 {
-        n + 2
-    } else {
-        n + 1
-    }
-}
-
 fn align_to_16(n: i64) -> i64 {
     if n % 2 == 0 {
         n + 2
