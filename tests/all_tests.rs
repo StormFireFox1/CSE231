@@ -138,6 +138,12 @@ success_tests! {
         input: "15",
         expected: "1307674368000",
     },
+    {
+        name: fact_big_recursive,
+        file: "recursive_fact.snek",
+        input: "20",
+        expected: "2432902008176640000",
+    }
 }
 
 runtime_error_tests! {
