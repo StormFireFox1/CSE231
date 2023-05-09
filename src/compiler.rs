@@ -62,6 +62,9 @@ pub fn parse_def(s: &Sexp) -> Definition {
                     fun_name = name.to_string();
                     for arg in arguments {
                         if let Sexp::Atom(S(arg_name)) = arg {
+                            if KEYWORDS.contains(&arg_name.as_str()) {
+                                panic!("Invalid expression provided: function parameters cannot be keywords!")
+                            }
                             args.push(arg_name.clone());
                         } else {
                             panic!("Invalid expression provided: alleged definition's arguments are not strings!")
@@ -216,6 +219,9 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 }
             },
             [Sexp::Atom(S(func)), args @ ..] => {
+                if KEYWORDS.contains(&func.as_str()) {
+                    panic!("Invalid expression provided");
+                }
                 let exprs = args.iter().map(|x| parse_expr(x)).collect::<Vec<Expr>>();
                 Expr::Call(func.to_string(), exprs)
             }
@@ -267,7 +273,6 @@ pub fn compile_definitions(defs: &im::HashMap<String, Definition>, label: &mut i
     }
     instrs
 }
-
 
 pub fn compile_main(
     e: &Expr,
@@ -546,6 +551,13 @@ pub fn compile_main(
             }
         },
         Expr::Call(name, args) => {
+            // Check to see if we've called an existing function with the proper number of arguments.
+            let func_def = defs.get(name).expect("Invalid expression provided: Call to undefined function");
+            if args.len() != func_def.params.len() {
+                panic!("Invalid expression provided: Different number of arguments for function call to {name}. Expected {}, got {}", func_def.params.len(), args.len());
+            }
+
+            // Ok, now we've checked for a valid call, so let's do it!
             // The idea is simple. Adjust the stack pointer upwards by the amount needed
             // to fit each argument. Then, make sure that compile_defs has all the envs
             // in the same spot.

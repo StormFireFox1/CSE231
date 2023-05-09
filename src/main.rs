@@ -1,3 +1,4 @@
+use im::HashSet;
 use sexp::parse;
 use spec::{Definition, Program};
 use std::env;
@@ -44,6 +45,24 @@ fn main() -> std::io::Result<()> {
       // Otherwise, just parse definition of function.
       let sexp = parse(&exp.group(0)).unwrap();
       let def = parse_def(&sexp);
+
+      // Check if key already exists. That means we have a duplicate function!
+      if program.definitions.contains_key(&def.name) {
+        panic!("Invalid expression provided: duplicate function name: {}", def.name);
+      }
+
+      // Check if there are duplicate parameter names in a function.
+      // Do this by checking if the number of parameters is the same
+      // after using a set rather than vector. There are better ways,
+      // I'm sure, but whatever.
+      let mut unique_params: HashSet<String> = HashSet::new();
+      for param in &def.params {
+        unique_params.insert(param.clone());
+      }
+      if unique_params.len() != def.params.len() {
+        panic!("Invalid expression provided: duplicate parameters name: {}", def.name);
+      }
+
       program.definitions = program.definitions.update(def.name.clone(), def);
     }
 

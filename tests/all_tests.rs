@@ -187,6 +187,12 @@ runtime_error_tests! {
         name: bad_equal,
         file: "bad_equal.snek",
         expected: "invalid argument",
+    },
+    {
+        name: fact_invalid,
+        file: "fact.snek",
+        input: "false",
+        expected: "invalid argument",
     }
 }
 
@@ -215,5 +221,35 @@ static_error_tests! {
         name: bad_block,
         file: "bad_block.snek",
         expected: "Invalid",
-    }
+    },
+    {
+        name: bad_func_arity,
+        file: "bad_func_arity.snek",
+        expected: "Invalid",
+    },
+    {
+        name: bad_func_name,
+        file: "bad_func_name.snek",
+        expected: "Invalid",
+    },
+    {
+        name: duplicate_func,
+        file: "duplicate_func.snek",
+        expected: "Invalid",
+    },
+    {
+        name: duplicate_params,
+        file: "duplicate_params.snek",
+        expected: "Invalid",
+    },
+    {
+        name: no_func_def,
+        file: "no_func_def.snek",
+        expected: "Invalid",
+    },
+    {
+        name: no_input_in_func,
+        file: "no_input_in_func.snek",
+        expected: "Unbound variable identifier input",
+    },
 }
