@@ -9,7 +9,7 @@ rust-version = "1.65"
 [dependencies]
 im = "15.1.0"
 sexp = "1.1.4"
-pcre = "0.2.3"
+regex = "1.7.1"
 
 [dev-dependencies]
 prettydiff = "0.6.4"

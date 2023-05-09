@@ -1,5 +1,5 @@
 use im::HashSet;
-use pcre::Pcre;
+use regex::Regex;
 use sexp::parse;
 use spec::Program;
 use std::env;
@@ -10,6 +10,51 @@ use crate::compiler::*;
 
 mod compiler;
 mod spec;
+
+/// Splits a string into a vector of strings by matching the furthest
+/// possible brackets.
+/// 
+/// This basically assumes all Snek files are at least vaguely trying to match
+/// brackets.
+fn split_sexps(contents: &String) -> Vec<String> {
+    let mut sexps: Vec<String> = Vec::new();
+    let mut start_index: usize = 0;
+    let mut bracket_count = 0;
+    let mut in_closed_brackets = false;
+    // Iterate over the entire file for matching strings.
+    // We'll basically do our own regex matching, because PCRE is not
+    // available on the autograder. Oop.
+    // This is literally a "Matching Brackets" problem on Leetcode, except
+    // we keep track of the start and ending index of any particular bracket.
+    // and then split our strings that way such that our "sexp" library can use them later.
+    for (i, c) in contents.chars().enumerate() {
+        if c == '(' {
+            if in_closed_brackets {
+                bracket_count += 1;
+            } else {
+                bracket_count = 1;
+                in_closed_brackets = true;
+                start_index = i;
+            }
+        } else if c == ')' {
+            if in_closed_brackets {
+                bracket_count -= 1;
+                if bracket_count == 0 {
+                    sexps.push(contents[start_index..=i].to_string());
+                    in_closed_brackets = false;
+                }
+            } else {
+                panic!("Invalid expression provided!")
+            }
+        }
+    }
+
+    // Save whatever is left, even if it's not well-formed. It should be a parse error anyway.
+    if bracket_count != 0 {
+        sexps.push(contents.chars().skip(start_index).collect())
+    }
+    sexps
+}
 
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -28,8 +73,11 @@ fn main() -> std::io::Result<()> {
     //
     // Regex pattern from StackOverflow: https://stackoverflow.com/questions/546433/regular-expression-to-match-balanced-parentheses
     // Tested with https://regexr.com
-    let mut blocks_regex = Pcre::compile(r"\((?:[^)(]+|(?R))*+\)").unwrap();
-    let mut exps = blocks_regex.matches(&in_contents).peekable();
+    let split_contents = split_sexps(&in_contents);
+    let mut exps = split_contents.iter().peekable();
+    for exp in split_contents.iter() {
+        println!("{}", exp);
+    }
 
     let mut program = Program {
         definitions: im::HashMap::new(),
@@ -39,11 +87,11 @@ fn main() -> std::io::Result<()> {
     while let Some(exp) = exps.next() {
         // Check if this is the last value. If it is, we're parsing the main expression.
         if exps.peek().is_none() {
-            program.main = Box::new(parse_expr(&parse(exp.group(0)).unwrap()));
+            program.main = Box::new(parse_expr(&parse(exp).unwrap()));
             break;
         }
         // Otherwise, just parse definition of function.
-        let sexp = parse(exp.group(0)).unwrap();
+        let sexp = parse(exp).unwrap();
         let def = parse_def(&sexp);
 
         // Check if key already exists. That means we have a duplicate function!
@@ -72,11 +120,10 @@ fn main() -> std::io::Result<()> {
         program.definitions = program.definitions.update(def.name.clone(), def);
     }
 
-    // If there are no matches, the above loop would have not ran.
+    // If there are no parenthese, the above loop would not have run.
     // That means we have some kind of primitive value. Just
     // parse the entire input and save that to Program.
-    let mut blocks_regex = Pcre::compile(r"\((?:[^)(]+|(?R))*+\)").unwrap();
-    if blocks_regex.matches(&in_contents).count() == 0 {
+    if split_contents.len() == 0 {
         program.main = Box::new(parse_expr(&parse(&in_contents).unwrap()));
     }
 
