@@ -241,7 +241,7 @@ fn depth(e: &Expr) -> i64 {
         Expr::Block(exprs) => exprs.iter().map(|expr| depth(expr)).max().unwrap_or(0),
         Expr::Break(expr) => depth(expr),
         Expr::Set(_, expr) => depth(expr),
-        Expr::Call(_, es) => es.iter().enumerate().map(|x| depth(&x.1) + x.0 as i64).max().unwrap_or(0),
+        Expr::Call(_, es) => es.iter().map(|x| depth(x)).max().unwrap_or(0),
     }
 }
 
@@ -249,7 +249,7 @@ pub fn compile_definitions(defs: &im::HashMap<String, Definition>, label: &mut i
     let mut instrs: Vec<Instr> = Vec::new();
     for (_, def) in defs.iter() {
         let depth = depth(&def.body);
-        let offset: i64 = (round_up(depth) * 8).into();
+        let offset: i64 = (depth * 8).into();
         let mut func_env: im::HashMap<String, i64> = im::HashMap::new();
         for (i, arg) in def.params.iter().enumerate() {
             func_env = func_env.update(arg.clone(), (depth + (i as i64 + 1)) * 8);
@@ -547,7 +547,7 @@ pub fn compile_main(
             // The idea is simple. Adjust the stack pointer upwards by the amount needed
             // to fit each argument. Then, make sure that compile_defs has all the envs
             // in the same spot.
-            let arg_offset = round_up(args.len() as i64) * 8;
+            let arg_offset = args.len() as i64 * 8;
             for (i, arg) in args.iter().rev().enumerate() {
                 result.append(&mut compile_main(arg, si, env, l, target, defs));
                 result.push(Instr::IMov(
