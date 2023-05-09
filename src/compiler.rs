@@ -27,7 +27,8 @@ fn new_label(l: &mut i64, s: &str) -> crate::spec::Val {
 
 fn assert_type(val: Val, t: Type) -> Vec<Instr> {
     let mut instrs = Vec::new();
-    instrs.push(Instr::IMov(Val::Reg(Reg::RBX), val));
+    instrs.push(Instr::IMov(Val::Reg(Reg::RBX), val.clone()));
+    instrs.push(Instr::IMov(Val::Reg(Reg::RSI), val));
     instrs.push(Instr::IAnd(Val::Reg(Reg::RBX), Val::Imm(1)));
     match t {
         Type::Number => {
@@ -258,7 +259,7 @@ pub fn compile_definitions(defs: &im::HashMap<String, Definition>, label: &mut i
             Instr::ILabel(def.name.clone()),
             Instr::ISub(Val::Reg(Reg::RSP), Val::Imm(offset)),
         ]);
-        instrs.append(&mut compile_main(&def.body, 2, &func_env, label, "", defs));
+        instrs.append(&mut compile_main(&def.body, 0, &func_env, label, "", defs));
         instrs.append(&mut vec![
             Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(offset)),
             Instr::IRet(),
@@ -398,6 +399,7 @@ pub fn compile_main(
                         Instr::IAnd(Val::Reg(Reg::RBX), Val::Imm(1)),
                         Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(1)),
                         Instr::ICmp(Val::Reg(Reg::RBX), Val::Reg(Reg::RCX)),
+                        Instr::IMov(Val::Reg(Reg::RSI), Val::Reg(Reg::RAX)),
                         Instr::IJne(Val::Label("invalid_arg_err".to_string())),
                         // Afterwards, just compare the two.
                         Instr::ICmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si * 8)),

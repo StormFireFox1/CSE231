@@ -126,6 +126,18 @@ success_tests! {
         input: "6",
         expected: "6\ntrue\ntrue",
     },
+    {
+        name: fact_small,
+        file: "fact.snek",
+        input: "3",
+        expected: "6"
+    },
+    {
+        name: fact_big,
+        file: "fact.snek",
+        input: "15",
+        expected: "1307674368000",
+    },
 }
 
 runtime_error_tests! {

@@ -13,11 +13,11 @@ extern "C" {
 }
 
 #[export_name = "\x01snek_error"]
-pub extern "C" fn snek_error(errcode: i64) {
+pub extern "C" fn snek_error(errcode: i64, value: i64) {
     match errcode {
-        1 => eprintln!("invalid argument"),
-        2 => eprintln!("invalid argument"),
-        3 => eprintln!("invalid argument"),
+        1 => eprintln!("invalid argument - not a boolean: {}", value),
+        2 => eprintln!("invalid argument - not a number: {}", value),
+        3 => eprintln!("invalid argument - not the same type: {}", value),
         4 => eprintln!("overflow"),
         _ => eprintln!("unknown error"),
     }
