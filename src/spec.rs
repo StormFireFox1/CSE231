@@ -107,9 +107,13 @@ impl Display for Val {
             Val::Reg(r) => r.fmt(f),
             Val::Imm(imm) => f.write_str(&format!("{}", imm)),
             Val::RegOffset(reg, offset) => {
-                let output = if *offset >= 0 { format!("[{reg} + {offset}]") } else { format!("[{} - {}]", reg, -offset) };
+                let output = if *offset >= 0 {
+                    format!("[{reg} + {offset}]")
+                } else {
+                    format!("[{} - {}]", reg, -offset)
+                };
                 f.write_str(&output)
-            },
+            }
             Val::Label(label) => f.write_str(&format!("{label}")),
         }
     }
@@ -128,7 +132,6 @@ impl Display for Reg {
             Reg::R8 => f.write_str("R8"),
             Reg::R9 => f.write_str("R9"),
             Reg::R15 => f.write_str("R15"),
-            
         }
     }
 }

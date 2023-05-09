@@ -7,11 +7,15 @@ const INT_63_BIT_MIN: i64 = -4_611_686_018_427_387_904;
 const INT_63_BIT_MAX: i64 = 4_611_686_018_427_387_903;
 const KEYWORDS: [&str; 22] = [
     "add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "input",
-    "isnum", "isbool", "loop", "break", "set!", "if", "fun", "print"
+    "isnum", "isbool", "loop", "break", "set!", "if", "fun", "print",
 ];
 
 fn round_up(n: i64) -> i64 {
-    if n % 2 == 1 { n + 2 } else { n + 1 }
+    if n % 2 == 1 {
+        n + 2
+    } else {
+        n + 1
+    }
 }
 
 enum Type {
@@ -50,9 +54,11 @@ pub fn parse_def(s: &Sexp) -> Definition {
         }
         // Check if the first value is the "fun" keyword.
         if def_list[0] != Sexp::Atom(S("fun".to_owned())) {
-            panic!("Invalid expression provided: alleged definition does not start with 'fun' keyword");
+            panic!(
+                "Invalid expression provided: alleged definition does not start with 'fun' keyword"
+            );
         }
-        
+
         let mut fun_name: String = String::new();
         let mut args = Vec::new();
         // Parse the second value, which should be a list with a bunch of string atoms.
@@ -70,7 +76,7 @@ pub fn parse_def(s: &Sexp) -> Definition {
                             panic!("Invalid expression provided: alleged definition's arguments are not strings!")
                         }
                     }
-                },
+                }
                 _ => {
                     panic!("Invalid expression provided: alleged definition does not contain a set of strings!")
                 }
@@ -81,7 +87,7 @@ pub fn parse_def(s: &Sexp) -> Definition {
 
         // Parse the main expression as well now.
         let body = parse_expr(&def_list[2]);
-        return Definition {
+        Definition {
             name: fun_name,
             params: args,
             body: Box::new(body),
@@ -217,12 +223,12 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 } else {
                     panic!("Invalid expression provided");
                 }
-            },
+            }
             [Sexp::Atom(S(func)), args @ ..] => {
                 if KEYWORDS.contains(&func.as_str()) {
                     panic!("Invalid expression provided");
                 }
-                let exprs = args.iter().map(|x| parse_expr(x)).collect::<Vec<Expr>>();
+                let exprs = args.iter().map(parse_expr).collect::<Vec<Expr>>();
                 Expr::Call(func.to_string(), exprs)
             }
             _ => panic!("Invalid expression provided"),
@@ -239,16 +245,21 @@ fn depth(e: &Expr) -> i64 {
         Expr::UnOp(_, expr) => depth(expr),
         Expr::BinOp(_, expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
         Expr::Let(binds, expr) => {
-            let bind_depth = binds.iter().enumerate().map(|x| depth(&x.1.1) + x.0 as i64).max().unwrap_or(0);
+            let bind_depth = binds
+                .iter()
+                .enumerate()
+                .map(|x| depth(&x.1 .1) + x.0 as i64)
+                .max()
+                .unwrap_or(0);
             bind_depth + depth(expr) + binds.len() as i64
-        },
+        }
         Expr::Id(_) => 0,
         Expr::If(expr1, expr2, expr3) => depth(expr1).max(depth(expr2)).max(depth(expr3)),
         Expr::Loop(expr) => depth(expr),
-        Expr::Block(exprs) => exprs.iter().map(|expr| depth(expr)).max().unwrap_or(0),
+        Expr::Block(exprs) => exprs.iter().map(depth).max().unwrap_or(0),
         Expr::Break(expr) => depth(expr),
         Expr::Set(_, expr) => depth(expr),
-        Expr::Call(_, es) => es.iter().map(|x| depth(x)).max().unwrap_or(0),
+        Expr::Call(_, es) => es.iter().map(depth).max().unwrap_or(0),
     }
 }
 
@@ -256,7 +267,7 @@ pub fn compile_definitions(defs: &im::HashMap<String, Definition>, label: &mut i
     let mut instrs: Vec<Instr> = Vec::new();
     for (_, def) in defs.iter() {
         let depth = depth(&def.body);
-        let offset: i64 = (depth * 8).into();
+        let offset: i64 = depth * 8;
         let mut func_env: im::HashMap<String, i64> = im::HashMap::new();
         for (i, arg) in def.params.iter().enumerate() {
             func_env = func_env.update(arg.clone(), (depth + (i as i64 + 1)) * 8);
@@ -330,19 +341,19 @@ pub fn compile_main(
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
                         Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ]);
-                },
+                }
                 Op1::Print => {
                     let index = if si % 2 == 1 { si + 2 } else { si + 1 };
                     let offset = index * 8;
                     result.append(&mut vec![
-                        Instr::ISub(Val::Reg(Reg::RSP), Val::Imm(offset.into())),
+                        Instr::ISub(Val::Reg(Reg::RSP), Val::Imm(offset)),
                         Instr::IMov(Val::RegOffset(Reg::RSP, 0), Val::Reg(Reg::RDI)),
                         Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)),
                         Instr::ICall(Val::Label("snek_print".to_string())),
                         Instr::IMov(Val::Reg(Reg::RDI), Val::RegOffset(Reg::RSP, 0)),
-                        Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(offset.into())),
+                        Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(offset)),
                     ]);
-                },
+                }
             }
         }
         Expr::BinOp(op, e1, e2) => {
@@ -549,10 +560,12 @@ pub fn compile_main(
             for e in v {
                 result.append(&mut compile_main(e, si, env, l, target, defs));
             }
-        },
+        }
         Expr::Call(name, args) => {
             // Check to see if we've called an existing function with the proper number of arguments.
-            let func_def = defs.get(name).expect("Invalid expression provided: Call to undefined function");
+            let func_def = defs
+                .get(name)
+                .expect("Invalid expression provided: Call to undefined function");
             if args.len() != func_def.params.len() {
                 panic!("Invalid expression provided: Different number of arguments for function call to {name}. Expected {}, got {}", func_def.params.len(), args.len());
             }
@@ -574,7 +587,7 @@ pub fn compile_main(
                 Instr::ICall(Val::Label(name.to_string())),
                 Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(arg_offset)),
             ]);
-        },
+        }
     };
     result
 }
@@ -590,15 +603,23 @@ pub fn instrs_to_string(instrs: &Vec<Instr>) -> String {
 
 pub fn compile(p: &Program) -> String {
     let depth = depth(&p.main);
-    let offset = round_up((depth + 1).into()) * 8;
-    let prelude: String = format!("our_code_starts_here:\n  sub RSP, {offset}\n  mov [RSP + 8], RDI\n");
+    let offset = round_up(depth + 1) * 8;
+    let prelude: String =
+        format!("our_code_starts_here:\n  sub RSP, {offset}\n  mov [RSP + 8], RDI\n");
     let postlude: String = format!("  add RSP, {offset}\n  ret\n");
     let mut env: im::HashMap<String, i64> = im::HashMap::new();
     env = env.update("input".to_owned(), 8);
     let mut label: i64 = 1;
     // Pass the function definitions using a separate variable for compile_main.
     instrs_to_string(&compile_definitions(&p.definitions, &mut label))
-    + &prelude
-    + &instrs_to_string(&compile_main(&p.main, 2, &env, &mut label, "", &p.definitions))
-    + &postlude
+        + &prelude
+        + &instrs_to_string(&compile_main(
+            &p.main,
+            2,
+            &env,
+            &mut label,
+            "",
+            &p.definitions,
+        ))
+        + &postlude
 }

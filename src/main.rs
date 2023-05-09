@@ -1,10 +1,10 @@
 use im::HashSet;
+use pcre::Pcre;
 use sexp::parse;
-use spec::{Definition, Program};
+use spec::Program;
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
-use pcre::Pcre;
 
 use crate::compiler::*;
 
@@ -37,36 +37,42 @@ fn main() -> std::io::Result<()> {
     };
 
     while let Some(exp) = exps.next() {
-      // Check if this is the last value. If it is, we're parsing the main expression.
-      if exps.peek().is_none() {
-        program.main = Box::new(parse_expr(&parse(&exp.group(0)).unwrap()));
-        break;
-      }
-      // Otherwise, just parse definition of function.
-      let sexp = parse(&exp.group(0)).unwrap();
-      let def = parse_def(&sexp);
+        // Check if this is the last value. If it is, we're parsing the main expression.
+        if exps.peek().is_none() {
+            program.main = Box::new(parse_expr(&parse(exp.group(0)).unwrap()));
+            break;
+        }
+        // Otherwise, just parse definition of function.
+        let sexp = parse(exp.group(0)).unwrap();
+        let def = parse_def(&sexp);
 
-      // Check if key already exists. That means we have a duplicate function!
-      if program.definitions.contains_key(&def.name) {
-        panic!("Invalid expression provided: duplicate function name: {}", def.name);
-      }
+        // Check if key already exists. That means we have a duplicate function!
+        if program.definitions.contains_key(&def.name) {
+            panic!(
+                "Invalid expression provided: duplicate function name: {}",
+                def.name
+            );
+        }
 
-      // Check if there are duplicate parameter names in a function.
-      // Do this by checking if the number of parameters is the same
-      // after using a set rather than vector. There are better ways,
-      // I'm sure, but whatever.
-      let mut unique_params: HashSet<String> = HashSet::new();
-      for param in &def.params {
-        unique_params.insert(param.clone());
-      }
-      if unique_params.len() != def.params.len() {
-        panic!("Invalid expression provided: duplicate parameters name: {}", def.name);
-      }
+        // Check if there are duplicate parameter names in a function.
+        // Do this by checking if the number of parameters is the same
+        // after using a set rather than vector. There are better ways,
+        // I'm sure, but whatever.
+        let mut unique_params: HashSet<String> = HashSet::new();
+        for param in &def.params {
+            unique_params.insert(param.clone());
+        }
+        if unique_params.len() != def.params.len() {
+            panic!(
+                "Invalid expression provided: duplicate parameters name: {}",
+                def.name
+            );
+        }
 
-      program.definitions = program.definitions.update(def.name.clone(), def);
+        program.definitions = program.definitions.update(def.name.clone(), def);
     }
 
-    // If there are no matches, the above loop would have not ran. 
+    // If there are no matches, the above loop would have not ran.
     // That means we have some kind of primitive value. Just
     // parse the entire input and save that to Program.
     let mut blocks_regex = Pcre::compile(r"\((?:[^)(]+|(?R))*+\)").unwrap();
