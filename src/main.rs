@@ -87,11 +87,11 @@ fn main() -> std::io::Result<()> {
     while let Some(exp) = exps.next() {
         // Check if this is the last value. If it is, we're parsing the main expression.
         if exps.peek().is_none() {
-            program.main = Box::new(parse_expr(&parse(exp).unwrap()));
+            program.main = Box::new(parse_expr(&parse(exp).expect("Invalid expression provided!")));
             break;
         }
         // Otherwise, just parse definition of function.
-        let sexp = parse(exp).unwrap();
+        let sexp = parse(exp).expect("Invalid expression provided!");
         let def = parse_def(&sexp);
 
         // Check if key already exists. That means we have a duplicate function!
@@ -124,7 +124,7 @@ fn main() -> std::io::Result<()> {
     // That means we have some kind of primitive value. Just
     // parse the entire input and save that to Program.
     if split_contents.len() == 0 {
-        program.main = Box::new(parse_expr(&parse(&in_contents).unwrap()));
+        program.main = Box::new(parse_expr(&parse(&in_contents).expect("Invalid expression provided!")));
     }
 
     let result = compile(&program);
