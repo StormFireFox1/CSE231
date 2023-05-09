@@ -108,12 +108,36 @@ success_tests! {
         input: "-5",
         expected: "-5\n-5",
     },
+    {
+        name: double,
+        file: "double.snek",
+        input: "10",
+        expected: "20",
+    },
+    {
+        name: even_odd_5,
+        file: "even_odd.snek",
+        input: "5",
+        expected: "5\nfalse\nfalse",
+    },
+    {
+        name: even_odd_6,
+        file: "even_odd.snek",
+        input: "6",
+        expected: "6\ntrue\ntrue",
+    },
 }
 
 runtime_error_tests! {
     {
         name: invalid_argument,
         file: "invalid_argument.snek",
+        expected: "invalid argument",
+    },
+    {
+        name: double_bool,
+        file: "double.snek",
+        input: "false",
         expected: "invalid argument",
     },
     {
