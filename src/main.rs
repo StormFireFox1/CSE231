@@ -75,9 +75,6 @@ fn main() -> std::io::Result<()> {
     // Tested with https://regexr.com
     let split_contents = split_sexps(&in_contents);
     let mut exps = split_contents.iter().peekable();
-    for exp in split_contents.iter() {
-        println!("{}", exp);
-    }
 
     let mut program = Program {
         definitions: im::HashMap::new(),
