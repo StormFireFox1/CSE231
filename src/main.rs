@@ -62,9 +62,7 @@ section .text
 extern snek_error
 extern snek_print
 global our_code_starts_here
-our_code_starts_here:
-  {}
-  ret
+{}
 not_bool_err:
   mov rdi, 1
   push rsp

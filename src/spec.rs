@@ -48,6 +48,7 @@ pub enum Instr {
     IJmp(Val),
     ICall(Val),
     ILabel(String),
+    IRet(),
 }
 
 #[derive(Debug, Clone)]
@@ -106,7 +107,7 @@ impl Display for Val {
             Val::Reg(r) => r.fmt(f),
             Val::Imm(imm) => f.write_str(&format!("{}", imm)),
             Val::RegOffset(reg, offset) => {
-                let output = if *offset >= 0 { format!("[{reg} - {offset}]") } else { format!("[{} + {}]", reg, -offset) };
+                let output = if *offset >= 0 { format!("[{reg} + {offset}]") } else { format!("[{} - {}]", reg, -offset) };
                 f.write_str(&output)
             },
             Val::Label(label) => f.write_str(&format!("{label}")),
@@ -157,6 +158,7 @@ impl Display for Instr {
             Instr::ICMovG(val1, val2) => f.write_str(&format!("cmovg {val1}, {val2}")),
             Instr::ICMovGE(val1, val2) => f.write_str(&format!("cmovge {val1}, {val2}")),
             Instr::ICMovLE(val1, val2) => f.write_str(&format!("cmovle {val1}, {val2}")),
+            Instr::IRet() => f.write_str("ret"),
         }
     }
 }
