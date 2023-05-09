@@ -576,11 +576,12 @@ pub fn compile_main(
             // The idea is simple. Adjust the stack pointer upwards by the amount needed
             // to fit each argument. Then, make sure that compile_defs has all the envs
             // in the same spot.
-            let arg_offset = args.len() as i64 * 8;
+            let arg_offset = align_to_16(args.len() as i64) * 8;
+            let extra_space = arg_offset - (args.len() as i64) * 8;
             for (i, arg) in args.iter().rev().enumerate() {
                 result.append(&mut compile_main(arg, si, env, l, target, defs));
                 result.push(Instr::IMov(
-                    Val::RegOffset(Reg::RSP, -(i as i64 + 1) * 8),
+                    Val::RegOffset(Reg::RSP, (-(i as i64 + 1) * 8) - extra_space),
                     Val::Reg(Reg::RAX),
                 ))
             }
