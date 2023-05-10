@@ -19,6 +19,7 @@ pub enum Reg {
     RSI,
     R8,
     R9,
+    R12,
     R15,
     RSP,
     RDI,
@@ -133,6 +134,7 @@ impl Display for Reg {
             Reg::RSI => f.write_str("RSI"),
             Reg::R8 => f.write_str("R8"),
             Reg::R9 => f.write_str("R9"),
+            Reg::R12 => f.write_str("R12"),
             Reg::R15 => f.write_str("R15"),
         }
     }

@@ -347,7 +347,10 @@ pub fn compile_main(
                     let offset = index * 8;
                     result.append(&mut vec![
                         Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)),
+                        Instr::IMov(Val::Reg(Reg::R12), Val::Reg(Reg::RSP)),
+                        Instr::IAnd(Val::Reg(Reg::RSP), Val::Imm(-16)),
                         Instr::ICall(Val::Label("snek_print".to_string())),
+                        Instr::IMov(Val::Reg(Reg::RSP), Val::Reg(Reg::R12)),
                     ]);
                 }
             }
