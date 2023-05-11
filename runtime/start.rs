@@ -17,7 +17,7 @@ pub extern "C" fn snek_error(errcode: i64, value: i64) {
     match errcode {
         1 => eprintln!("invalid argument - not a boolean: {}", value),
         2 => eprintln!("invalid argument - not a number: {}", value),
-        3 => eprintln!("invalid argument - not the same type: {}", value),
+        3 => eprintln!("invalid argument - not the same type when comparing for equality!"),
         4 => eprintln!("overflow"),
         _ => eprintln!("unknown error"),
     }

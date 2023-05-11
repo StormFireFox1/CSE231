@@ -137,15 +137,19 @@ global our_code_starts_here
 {}
 not_bool_err:
   mov rdi, 1
+  mov rsi, rax
   call snek_error
 not_num_err:
   mov rdi, 2
+  mov rsi, rax
   call snek_error
 invalid_arg_err:
   mov rdi, 3
+  mov rsi, rax
   call snek_error
 overflow_err:
   mov rdi, 4
+  mov rsi, rax
   call snek_error
 ",
         result

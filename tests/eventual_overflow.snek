@@ -1,0 +1,3 @@
+(fun (overflow_loop x) (overflow_loop (* x x)))
+
+(overflow_loop 2)

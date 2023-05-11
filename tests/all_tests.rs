@@ -211,6 +211,11 @@ runtime_error_tests! {
         file: "fact.snek",
         input: "false",
         expected: "invalid argument",
+    },
+    {
+        name: eventual_overflow,
+        file: "eventual_overflow.snek",
+        expected: "overflow",
     }
 }
 
