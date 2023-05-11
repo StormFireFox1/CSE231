@@ -143,6 +143,18 @@ success_tests! {
         file: "recursive_fact.snek",
         input: "20",
         expected: "2432902008176640000",
+    },
+    {
+        name: print_in_func,
+        file: "print_in_func.snek",
+        input: "5",
+        expected: "10\n10",
+    },
+    {
+        name: infinity_calls,
+        file: "infinity_calls.snek",
+        input: "10",
+        expected: "10\n9\n8\n7\n6\n5\n4\n3\n2\n1\n0"
     }
 }
 

@@ -1,0 +1,3 @@
+(fun (big_loop x) (let ((n x)) (loop (if (= n 0) (break 0) (block (print n) (set! n (sub1 n)))))))
+
+(big_loop input)
