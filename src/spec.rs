@@ -17,6 +17,7 @@ pub enum Val {
 #[allow(dead_code)]
 pub enum Reg {
     RAX,
+    RBP,
     RBX,
     RCX,
     RDX,
@@ -118,9 +119,9 @@ impl Display for Val {
             Val::Imm(imm) => f.write_str(&format!("{}", imm)),
             Val::RegOffset(reg, offset) => {
                 let output = if *offset >= 0 {
-                    format!("[{reg} + {offset}]")
+                    format!("[{reg} - {offset}]")
                 } else {
-                    format!("[{} - {}]", reg, -offset)
+                    format!("[{} + {}]", reg, -offset)
                 };
                 f.write_str(&output)
             }
@@ -143,6 +144,7 @@ impl Display for Reg {
             Reg::R9 => f.write_str("R9"),
             Reg::R12 => f.write_str("R12"),
             Reg::R15 => f.write_str("R15"),
+            Reg::RBP => f.write_str("RBP"),
         }
     }
 }

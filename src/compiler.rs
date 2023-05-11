@@ -12,7 +12,7 @@ const KEYWORDS: [&str; 22] = [
 
 fn align_to_16(n: i64) -> i64 {
     if n % 2 == 0 {
-        n + 2
+        n
     } else {
         n + 1
     }
@@ -273,15 +273,18 @@ pub fn compile_definitions(defs: &im::HashMap<String, Definition>, label: &mut i
         let offset: i64 = depth * 8;
         let mut func_env: im::HashMap<String, i64> = im::HashMap::new();
         for (i, arg) in def.params.iter().enumerate() {
-            func_env = func_env.update(arg.clone(), (depth + (i as i64 + 1)) * 8);
+            func_env = func_env.update(arg.clone(), -(i as i64 + 2) * 8);
         }
         instrs.append(&mut vec![
             Instr::ILabel(def.name.clone()),
+            Instr::IPush(Val::Reg(Reg::RBP)),
+            Instr::IMov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)),
             Instr::ISub(Val::Reg(Reg::RSP), Val::Imm(offset)),
         ]);
-        instrs.append(&mut compile_main(&def.body, 0, &func_env, label, "", defs));
+        instrs.append(&mut compile_main(&def.body, 1, &func_env, label, "", defs));
         instrs.append(&mut vec![
             Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(offset)),
+            Instr::IPop(Val::Reg(Reg::RBP)),
             Instr::IRet(),
         ]);
     }
@@ -308,7 +311,7 @@ pub fn compile_main(
         Expr::Id(x) => result.push(Instr::IMov(
             Val::Reg(Reg::RAX),
             Val::RegOffset(
-                Reg::RSP,
+                Reg::RBP,
                 *env.get(x)
                     .unwrap_or_else(|| panic!("Unbound variable identifier {x}")),
             ),
@@ -353,10 +356,7 @@ pub fn compile_main(
                     // let offset = index * 8;
                     result.append(&mut vec![
                         Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)),
-                        Instr::IMov(Val::Reg(Reg::R12), Val::Reg(Reg::RSP)),
-                        Instr::IAnd(Val::Reg(Reg::RSP), Val::Imm(-16)),
                         Instr::ICall(Val::Label("snek_print".to_string())),
-                        Instr::IMov(Val::Reg(Reg::RSP), Val::Reg(Reg::R12)),
                     ]);
                 }
             }
@@ -366,7 +366,7 @@ pub fn compile_main(
             let mut v2 = compile_main(e2, si + 1, env, l, target, defs);
             result.append(&mut v1);
             result.push(Instr::IMov(
-                Val::RegOffset(Reg::RSP, si * 8),
+                Val::RegOffset(Reg::RBP, si * 8),
                 Val::Reg(Reg::RAX),
             ));
             result.append(&mut v2);
@@ -374,41 +374,41 @@ pub fn compile_main(
                 Op2::Plus => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RSP, si * 8),
+                        Val::RegOffset(Reg::RBP, si * 8),
                         Type::Number,
                     ));
                     result.push(Instr::IAdd(
                         Val::Reg(Reg::RAX),
-                        Val::RegOffset(Reg::RSP, si * 8),
+                        Val::RegOffset(Reg::RBP, si * 8),
                     ));
                     result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
                 }
                 Op2::Minus => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RSP, si * 8),
+                        Val::RegOffset(Reg::RBP, si * 8),
                         Type::Number,
                     ));
                     result.push(Instr::ISub(
-                        Val::RegOffset(Reg::RSP, si * 8),
+                        Val::RegOffset(Reg::RBP, si * 8),
                         Val::Reg(Reg::RAX),
                     ));
                     result.push(Instr::IJo(Val::Label("overflow_err".to_string())));
                     result.push(Instr::IMov(
                         Val::Reg(Reg::RAX),
-                        Val::RegOffset(Reg::RSP, si * 8),
+                        Val::RegOffset(Reg::RBP, si * 8),
                     ))
                 }
                 Op2::Times => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RSP, si * 8),
+                        Val::RegOffset(Reg::RBP, si * 8),
                         Type::Number,
                     ));
                     result.push(Instr::ISar(Val::Reg(Reg::RAX), Val::Imm(1)));
                     result.push(Instr::IMul(
                         Val::Reg(Reg::RAX),
-                        Val::RegOffset(Reg::RSP, si * 8),
+                        Val::RegOffset(Reg::RBP, si * 8),
                     ));
                     result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
                 }
@@ -416,14 +416,14 @@ pub fn compile_main(
                     // Check if both types are equal. If not, throw the "Invalid argument error".
                     result.append(&mut vec![
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
-                        Instr::IMov(Val::Reg(Reg::RCX), Val::RegOffset(Reg::RSP, si * 8)),
+                        Instr::IMov(Val::Reg(Reg::RCX), Val::RegOffset(Reg::RBP, si * 8)),
                         Instr::IAnd(Val::Reg(Reg::RBX), Val::Imm(1)),
                         Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(1)),
                         Instr::ICmp(Val::Reg(Reg::RBX), Val::Reg(Reg::RCX)),
                         Instr::IMov(Val::Reg(Reg::RSI), Val::Reg(Reg::RAX)),
                         Instr::IJne(Val::Label("invalid_arg_err".to_string())),
                         // Afterwards, just compare the two.
-                        Instr::ICmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, si * 8)),
+                        Instr::ICmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBP, si * 8)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
                         Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
@@ -432,11 +432,11 @@ pub fn compile_main(
                 Op2::Greater => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RSP, si * 8),
+                        Val::RegOffset(Reg::RBP, si * 8),
                         Type::Number,
                     ));
                     result.append(&mut vec![
-                        Instr::ICmp(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)),
+                        Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
                         Instr::ICMovG(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
@@ -445,11 +445,11 @@ pub fn compile_main(
                 Op2::GreaterOrEqual => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RSP, si * 8),
+                        Val::RegOffset(Reg::RBP, si * 8),
                         Type::Number,
                     ));
                     result.append(&mut vec![
-                        Instr::ICmp(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)),
+                        Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
                         Instr::ICMovGE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
@@ -458,11 +458,11 @@ pub fn compile_main(
                 Op2::Less => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RSP, si * 8),
+                        Val::RegOffset(Reg::RBP, si * 8),
                         Type::Number,
                     ));
                     result.append(&mut vec![
-                        Instr::ICmp(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)),
+                        Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
                         Instr::ICMovL(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
@@ -471,11 +471,11 @@ pub fn compile_main(
                 Op2::LessOrEqual => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RSP, si * 8),
+                        Val::RegOffset(Reg::RBP, si * 8),
                         Type::Number,
                     ));
                     result.append(&mut vec![
-                        Instr::ICmp(Val::RegOffset(Reg::RSP, si * 8), Val::Reg(Reg::RAX)),
+                        Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
                         Instr::ICMovLE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
@@ -503,7 +503,7 @@ pub fn compile_main(
                     defs,
                 ));
                 result.push(Instr::IMov(
-                    Val::RegOffset(Reg::RSP, new_stack_offset * 8),
+                    Val::RegOffset(Reg::RBP, new_stack_offset * 8),
                     Val::Reg(Reg::RAX),
                 ));
                 new_binds.insert(tuple.0.clone(), new_stack_offset * 8);
@@ -554,7 +554,7 @@ pub fn compile_main(
             result.append(&mut compile_main(e, si, env, l, target, defs));
             result.push(Instr::IMov(
                 Val::RegOffset(
-                    Reg::RSP,
+                    Reg::RBP,
                     *env.get(id)
                         .unwrap_or_else(|| panic!("Unbound variable identifier {id}")),
                 ),
@@ -581,18 +581,15 @@ pub fn compile_main(
             // in the same spot.
             let arg_offset = align_to_16(args.len() as i64) * 8;
             let extra_space = arg_offset - (args.len() as i64) * 8;
-            for (i, arg) in args.iter().rev().enumerate() {
-                result.append(&mut compile_main(arg, si, env, l, target, defs));
-                result.push(Instr::IMov(
-                    Val::RegOffset(Reg::RSP, (-(i as i64 + 1) * 8) - extra_space),
-                    Val::Reg(Reg::RAX),
-                ))
+            if extra_space != 0 {
+                result.push(Instr::IPush(Val::Imm(0)));
             }
-            result.append(&mut vec![
-                Instr::ISub(Val::Reg(Reg::RSP), Val::Imm(arg_offset)),
-                Instr::ICall(Val::Label(name.to_string())),
-                Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(arg_offset)),
-            ]);
+            for arg in args.iter().rev() {
+                result.append(&mut compile_main(arg, si, env, l, target, defs));
+                result.push(Instr::IPush(Val::Reg(Reg::RAX)))
+            }
+            result.push(Instr::ICall(Val::Label(name.to_string())));
+            result.push(Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(arg_offset)));
         }
     };
     result
@@ -611,8 +608,8 @@ pub fn compile(p: &Program) -> String {
     let depth = depth(&p.main);
     let offset = align_to_16(depth + 1) * 8;
     let prelude: String =
-        format!("our_code_starts_here:\n  sub RSP, {offset}\n  mov [RSP + 8], RDI\n");
-    let postlude: String = format!("  add RSP, {offset}\n  ret\n");
+        format!("our_code_starts_here:\n  push rbp\n  mov rbp, rsp\n  sub RSP, {offset}\n  mov [RBP - 8], RDI\n");
+    let postlude: String = format!("  add RSP, {offset}\n  pop rbp\n  ret\n");
     let mut env: im::HashMap<String, i64> = im::HashMap::new();
     env = env.update("input".to_owned(), 8);
     let mut label: i64 = 1;
