@@ -18,6 +18,9 @@ fn align_to_16(n: i64) -> i64 {
     }
 }
 
+// Dead code would be Bool, but we'll probably use this later.
+// For now, disable warnings.
+#[allow(dead_code)]
 enum Type {
     Number,
     Bool,
@@ -59,7 +62,7 @@ pub fn parse_def(s: &Sexp) -> Definition {
             );
         }
 
-        let mut fun_name: String = String::new();
+        let fun_name: String;
         let mut args = Vec::new();
         // Parse the second value, which should be a list with a bunch of string atoms.
         if let Sexp::List(vec) = &def_list[1] {
@@ -343,8 +346,11 @@ pub fn compile_main(
                     ]);
                 }
                 Op1::Print => {
-                    let index = align_to_16(si);
-                    let offset = index * 8;
+                    // FIXME All the stack alignment procedures here are not
+                    // necessarily orthodox. This guarantees alignment, but it'd
+                    // be best to fix this at some point.
+                    //let index = align_to_16(si);
+                    // let offset = index * 8;
                     result.append(&mut vec![
                         Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::R12), Val::Reg(Reg::RSP)),

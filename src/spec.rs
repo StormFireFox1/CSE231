@@ -10,7 +10,11 @@ pub enum Val {
     Label(String),
 }
 
+// RDX, R8, R9, and R15 are silenced, but will likely
+// be used for tuple calculations in later assignments.
+// Allow dead code for these here.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum Reg {
     RAX,
     RBX,
@@ -25,7 +29,10 @@ pub enum Reg {
     RDI,
 }
 
+// Push, pop, shl and shr will likely be used later.
+// Dead code warning silenced until further notice.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Instr {
     IMov(Val, Val),
     IAdd(Val, Val),

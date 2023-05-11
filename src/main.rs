@@ -12,7 +12,7 @@ mod spec;
 
 /// Splits a string into a vector of strings by matching the furthest
 /// possible brackets.
-/// 
+///
 /// This basically assumes all Snek files are at least vaguely trying to match
 /// brackets.
 fn split_sexps(contents: &String) -> Vec<String> {
@@ -83,7 +83,9 @@ fn main() -> std::io::Result<()> {
     while let Some(exp) = exps.next() {
         // Check if this is the last value. If it is, we're parsing the main expression.
         if exps.peek().is_none() {
-            program.main = Box::new(parse_expr(&parse(exp).expect("Invalid expression provided!")));
+            program.main = Box::new(parse_expr(
+                &parse(exp).expect("Invalid expression provided!"),
+            ));
             break;
         }
         // Otherwise, just parse definition of function.
@@ -119,8 +121,10 @@ fn main() -> std::io::Result<()> {
     // If there are no parenthese, the above loop would not have run.
     // That means we have some kind of primitive value. Just
     // parse the entire input and save that to Program.
-    if split_contents.len() == 0 {
-        program.main = Box::new(parse_expr(&parse(&in_contents).expect("Invalid expression provided!")));
+    if split_contents.is_empty() {
+        program.main = Box::new(parse_expr(
+            &parse(&in_contents).expect("Invalid expression provided!"),
+        ));
     }
 
     let result = compile(&program);
