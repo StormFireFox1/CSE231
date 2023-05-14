@@ -1,7 +1,7 @@
 use std::env;
 
-const INT_63_BIT_MIN: i64 = -4_611_686_018_427_387_904;
-const INT_63_BIT_MAX: i64 = 4_611_686_018_427_387_903;
+const INT_62_BIT_MIN: i64 = -2_305_843_009_213_693_952;
+const INT_62_BIT_MAX: i64 = 2_305_843_009_213_693_951;
 
 #[link(name = "our_code")]
 extern "C" {
@@ -19,6 +19,7 @@ pub extern "C" fn snek_error(errcode: i64, value: i64) {
         2 => eprintln!("invalid argument - not a number: {}", value),
         3 => eprintln!("invalid argument - not the same type when comparing for equality!"),
         4 => eprintln!("overflow"),
+        5 => eprintln!("invalid argument - not a tuple: {:#x}", value),
         _ => eprintln!("unknown error"),
     }
     std::process::exit(1);
@@ -26,9 +27,9 @@ pub extern "C" fn snek_error(errcode: i64, value: i64) {
 
 #[export_name = "\x01snek_print"]
 pub extern "C" fn snek_print(value: i64) -> i64 {
-    if value == 3 { println!("true"); }
-    else if value == 1 { println!("false"); }
-    else if value % 2 == 0 { println!("{}", value >> 1); }
+    if value == 7 { println!("true"); }
+    else if value == 3 { println!("false"); }
+    else if value & 0b11 == 0 { println!("{}", value >> 2); }
     else {
         println!("Unknown value: {}", value);
     }
@@ -37,12 +38,12 @@ pub extern "C" fn snek_print(value: i64) -> i64 {
 
 fn parse_input(input: &str) -> i64 {
     if input == "false" {
-        1
-    } else if input == "true" {
         3
+    } else if input == "true" {
+        7
     } else {
-        let i = input.parse::<i64>().unwrap_or_else(|_| { panic!("overflow"); }) << 1;
-        if i < INT_63_BIT_MIN || i > INT_63_BIT_MAX {
+        let i = input.parse::<i64>().unwrap_or_else(|_| { panic!("overflow"); }) << 2;
+        if i < INT_62_BIT_MIN || i > INT_62_BIT_MAX {
             panic!("overflow")
         }
         i
@@ -56,8 +57,8 @@ fn main() {
 
     let i: i64 = unsafe { our_code_starts_here(input) };
     match i {
-        1 => println!("false"),
-        3 => println!("true"),
-        _ => println!("{}", i >> 1),
+        3 => println!("false"),
+        7 => println!("true"),
+        _ => println!("{}", i >> 2),
     }
 }

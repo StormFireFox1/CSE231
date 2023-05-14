@@ -95,7 +95,7 @@ success_tests! {
     {
         name: big_mul,
         file: "big_mul.snek",
-        expected: "-4611686018427387904"
+        expected: "-2305843009213693952"
     },
     {
         name: print_default,
@@ -141,8 +141,8 @@ success_tests! {
     {
         name: fact_big_recursive,
         file: "recursive_fact.snek",
-        input: "20",
-        expected: "2432902008176640000",
+        input: "15",
+        expected: "1307674368000",
     },
     {
         name: print_in_func,

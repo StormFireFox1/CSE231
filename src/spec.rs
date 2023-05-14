@@ -81,6 +81,7 @@ pub enum Op2 {
     GreaterOrEqual,
     Less,
     LessOrEqual,
+    Index,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +110,7 @@ pub enum Expr {
     Break(Box<Expr>),
     Set(String, Box<Expr>),
     Block(Vec<Expr>),
+    Tuple(Vec<Expr>),
     Call(String, Vec<Expr>),
 }
 

@@ -3,11 +3,11 @@ use sexp::*;
 
 use crate::spec::*;
 
-const INT_63_BIT_MIN: i64 = -4_611_686_018_427_387_904;
-const INT_63_BIT_MAX: i64 = 4_611_686_018_427_387_903;
-const KEYWORDS: [&str; 22] = [
+const INT_62_BIT_MIN: i64 = -2_305_843_009_213_693_952;
+const INT_62_BIT_MAX: i64 = 2_305_843_009_213_693_951;
+const KEYWORDS: [&str; 24] = [
     "add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "input",
-    "isnum", "isbool", "loop", "break", "set!", "if", "fun", "print",
+    "isnum", "isbool", "loop", "break", "set!", "if", "fun", "print", "index", "tuple"
 ];
 
 fn align_to_16(n: i64) -> i64 {
@@ -24,6 +24,7 @@ fn align_to_16(n: i64) -> i64 {
 enum Type {
     Number,
     Bool,
+    Tuple,
 }
 
 fn new_label(l: &mut i64, s: &str) -> crate::spec::Val {
@@ -35,16 +36,21 @@ fn new_label(l: &mut i64, s: &str) -> crate::spec::Val {
 fn assert_type(val: Val, t: Type) -> Vec<Instr> {
     let mut instrs = Vec::new();
     instrs.push(Instr::IMov(Val::Reg(Reg::RBX), val.clone()));
-    instrs.push(Instr::IAnd(Val::Reg(Reg::RBX), Val::Imm(1)));
+    instrs.push(Instr::IAnd(Val::Reg(Reg::RBX), Val::Imm(3)));
     match t {
         Type::Number => {
             instrs.push(Instr::ICmp(Val::Reg(Reg::RBX), Val::Imm(0)));
             instrs.push(Instr::IJne(Val::Label("not_num_err".to_string())));
         }
         Type::Bool => {
-            instrs.push(Instr::ICmp(Val::Reg(Reg::RBX), Val::Imm(1)));
+            instrs.push(Instr::ICmp(Val::Reg(Reg::RBX), Val::Imm(3)));
             instrs.push(Instr::IJne(Val::Label("not_bool_err".to_string())));
+        },
+        Type::Tuple => {
+            instrs.push(Instr::ICmp(Val::Reg(Reg::RBX), Val::Imm(1)));
+            instrs.push(Instr::IJne(Val::Label("not_tuple_err".to_string())));
         }
+
     }
     instrs
 }
@@ -108,8 +114,8 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 _ => Expr::Id(string.to_string()),
             },
             I(imm) => {
-                if *imm < INT_63_BIT_MIN || *imm > INT_63_BIT_MAX {
-                    panic!("Invalid immediate: overflows out of 63 bits: {imm}")
+                if *imm < INT_62_BIT_MIN || *imm > INT_62_BIT_MAX {
+                    panic!("Invalid immediate: overflows out of 62 bits: {imm}")
                 }
                 Expr::Number(*imm)
             }
@@ -262,6 +268,7 @@ fn depth(e: &Expr) -> i64 {
         Expr::Break(expr) => depth(expr),
         Expr::Set(_, expr) => depth(expr),
         Expr::Call(_, es) => es.iter().map(depth).max().unwrap_or(0),
+        Expr::Tuple(es) => es.iter().map(depth).max().unwrap_or(0),
     }
 }
 
@@ -300,11 +307,11 @@ pub fn compile_main(
 ) -> Vec<Instr> {
     let mut result: Vec<Instr> = Vec::new();
     match e {
-        Expr::Number(n) => result.push(Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(*n << 1))),
+        Expr::Number(n) => result.push(Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(*n << 2))),
         Expr::Boolean(bool) => {
             result.push(Instr::IMov(
                 Val::Reg(Reg::RAX),
-                if *bool { Val::Imm(3) } else { Val::Imm(1) },
+                if *bool { Val::Imm(7) } else { Val::Imm(3) },
             ));
         }
         Expr::Id(x) => result.push(Instr::IMov(
@@ -321,20 +328,20 @@ pub fn compile_main(
             match op {
                 Op1::Add1 => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(2)));
+                    result.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(4)));
                     result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
                 }
                 Op1::Sub1 => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.push(Instr::ISub(Val::Reg(Reg::RAX), Val::Imm(2)));
+                    result.push(Instr::ISub(Val::Reg(Reg::RAX), Val::Imm(4)));
                     result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
                 }
                 Op1::IsNum => {
                     result.append(&mut vec![
                         Instr::IAnd(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(0)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
                         Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ]);
                 }
@@ -342,8 +349,8 @@ pub fn compile_main(
                     result.append(&mut vec![
                         Instr::IAnd(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(1)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
                         Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ]);
                 }
@@ -404,7 +411,7 @@ pub fn compile_main(
                         Val::RegOffset(Reg::RBP, si * 8),
                         Type::Number,
                     ));
-                    result.push(Instr::ISar(Val::Reg(Reg::RAX), Val::Imm(1)));
+                    result.push(Instr::ISar(Val::Reg(Reg::RAX), Val::Imm(2)));
                     result.push(Instr::IMul(
                         Val::Reg(Reg::RAX),
                         Val::RegOffset(Reg::RBP, si * 8),
@@ -416,17 +423,18 @@ pub fn compile_main(
                     result.append(&mut vec![
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RCX), Val::RegOffset(Reg::RBP, si * 8)),
-                        Instr::IAnd(Val::Reg(Reg::RBX), Val::Imm(1)),
-                        Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(1)),
+                        Instr::IAnd(Val::Reg(Reg::RBX), Val::Imm(3)),
+                        Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(3)),
                         Instr::ICmp(Val::Reg(Reg::RBX), Val::Reg(Reg::RCX)),
                         Instr::IJne(Val::Label("invalid_arg_err".to_string())),
                         // Afterwards, just compare the two.
                         Instr::ICmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBP, si * 8)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
                         Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ])
-                }
+                },
+                Op2::Index => todo!(),
                 Op2::Greater => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(
@@ -435,8 +443,8 @@ pub fn compile_main(
                     ));
                     result.append(&mut vec![
                         Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
                         Instr::ICMovG(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ])
                 }
@@ -448,8 +456,8 @@ pub fn compile_main(
                     ));
                     result.append(&mut vec![
                         Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
                         Instr::ICMovGE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ])
                 }
@@ -461,8 +469,8 @@ pub fn compile_main(
                     ));
                     result.append(&mut vec![
                         Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
                         Instr::ICMovL(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ])
                 }
@@ -474,8 +482,8 @@ pub fn compile_main(
                     ));
                     result.append(&mut vec![
                         Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
+                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
                         Instr::ICMovLE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ])
                 }
@@ -522,7 +530,7 @@ pub fn compile_main(
             let mut then_instrs = compile_main(then, si, env, &mut (*l + 2), target, defs);
             let mut alt_instrs = compile_main(alt, si, env, &mut (*l + 3), target, defs);
             result.append(&mut cond_instrs);
-            result.push(Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(1)));
+            result.push(Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(3)));
             result.push(Instr::IJe(else_label.clone()));
             result.append(&mut then_instrs);
             result.push(Instr::IJmp(end_label.clone()));
@@ -589,6 +597,7 @@ pub fn compile_main(
             result.push(Instr::ICall(Val::Label(name.to_string())));
             result.push(Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(arg_offset)));
         }
+        Expr::Tuple(values) => todo!(),
     };
     result
 }
