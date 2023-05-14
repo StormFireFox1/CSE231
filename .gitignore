@@ -92,3 +92,7 @@ Cargo.lock
 *.run
 *.o
 *.a
+
+# Rust error study stuff
+config.txt
+changelog
