@@ -23,6 +23,7 @@ pub extern "C" fn snek_error(errcode: i64, value: i64) {
         4 => eprintln!("overflow"),
         5 => eprintln!("invalid argument - not a tuple: {:#x}", value),
         6 => eprintln!("out of bounds tuple indexing error - tried to index at {}", value >> 2),
+        7 => eprintln!("tuple null pointer exception!"),
         _ => eprintln!("unknown error"),
     }
     std::process::exit(1);

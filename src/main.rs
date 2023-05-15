@@ -159,6 +159,10 @@ out_of_bounds_err:
   mov rdi, 6
   mov rsi, rax
   call snek_error
+null_ptr_err:
+  mov rdi, 7
+  mov rsi, rax
+  call snek_error
 ",
         result
     );

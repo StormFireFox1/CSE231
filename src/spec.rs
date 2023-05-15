@@ -102,6 +102,7 @@ pub struct Definition {
 pub enum Expr {
     Number(i64),
     Boolean(bool),
+    Nil,
     Id(String),
     Let(Vec<(String, Expr)>, Box<Expr>),
     UnOp(Op1, Box<Expr>),
@@ -112,6 +113,7 @@ pub enum Expr {
     Set(String, Box<Expr>),
     Block(Vec<Expr>),
     Tuple(Vec<Expr>),
+    Update(String, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
 }
 

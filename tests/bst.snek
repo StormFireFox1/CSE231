@@ -1,0 +1,20 @@
+(fun (new_bst init) (tuple init nil nil))
+(fun (insert_bst tree x)
+    (if (= tree nil) (tuple x nil nil)
+        (if (< (index tree 0) x) (update! tree 2 (insert_bst (index tree 2) x))
+            (if (> (index tree 0) x) (update! tree 1 (insert_bst (index tree 1) x)) tree))))
+
+(fun (in_bst tree x)
+    (if (= tree nil) false
+        (if (= (index tree 0) x) true
+            (if (< (index tree 0) x) (in_bst (index tree 2) x)
+                (in_bst (index tree 1) x)))))
+
+(let ((x (new_bst 5))) (block
+    (print (insert_bst x 2))
+    (print (insert_bst x 6))
+    (print (in_bst x 2))
+    (print (in_bst x 1))
+    (print (insert_bst x 1))
+    (in_bst x 1)
+))

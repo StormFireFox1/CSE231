@@ -155,6 +155,26 @@ success_tests! {
         file: "infinity_calls.snek",
         input: "10",
         expected: "10\n9\n8\n7\n6\n5\n4\n3\n2\n1\n0"
+    },
+    {
+        name: tuple_simple_examples,
+        file: "tuple_simple_examples.snek",
+        expected: "1\ntrue\n7"
+    },
+    {
+        name: points,
+        file: "points.snek",
+        expected: "(tuple 1 2)\n(tuple 7 9)"
+    },
+    {
+        name: tuple_update,
+        file: "tuple_update.snek",
+        expected: "(tuple 1 5 3)"
+    },
+    {
+        name: bst,
+        file: "bst.snek",
+        expected: "(tuple 5 (tuple 2 nil nil) nil)\n(tuple 5 (tuple 2 nil nil) (tuple 6 nil nil))\ntrue\nfalse\n(tuple 5 (tuple 2 (tuple 1 nil nil) nil) (tuple 6 nil nil))\ntrue",
     }
 }
 
