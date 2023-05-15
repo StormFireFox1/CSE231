@@ -1,0 +1,6 @@
+(let ((tuple1 (tuple 1 2 3)) (tuple2 (tuple (+ 1 3) (= 3 3) (add1 6))))
+(block
+  (print (index tuple1 0))
+  (print (index tuple2 1))
+  (index tuple2 2)
+))

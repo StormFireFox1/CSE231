@@ -177,6 +177,11 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 Box::new(parse_expr(e1)),
                 Box::new(parse_expr(e2)),
             ),
+            [Sexp::Atom(S(op)), e1, e2] if op == "index" => Expr::BinOp(
+                Op2::Index,
+                Box::new(parse_expr(e1)),
+                Box::new(parse_expr(e2)),
+            ),
             [Sexp::Atom(S(op)), Sexp::Atom(S(id)), e] if op == "set!" => {
                 if KEYWORDS.contains(&id.as_str()) {
                     panic!("Invalid expression provided")
@@ -232,13 +237,23 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                     panic!("Invalid expression provided");
                 }
             }
+            [Sexp::Atom(S(op)), es @ ..] if op == "tuple" => {
+                let mut exprs: Vec<Expr> = Vec::new();
+                if es.is_empty() {
+                    panic!("Invalid expression provided");
+                }
+                for expr in es {
+                    exprs.push(parse_expr(expr));
+                }
+                Expr::Tuple(exprs)
+            },
             [Sexp::Atom(S(func)), args @ ..] => {
                 if KEYWORDS.contains(&func.as_str()) {
                     panic!("Invalid expression provided");
                 }
                 let exprs = args.iter().map(parse_expr).collect::<Vec<Expr>>();
                 Expr::Call(func.to_string(), exprs)
-            }
+            },
             _ => panic!("Invalid expression provided"),
         },
     }
@@ -268,7 +283,7 @@ fn depth(e: &Expr) -> i64 {
         Expr::Break(expr) => depth(expr),
         Expr::Set(_, expr) => depth(expr),
         Expr::Call(_, es) => es.iter().map(depth).max().unwrap_or(0),
-        Expr::Tuple(es) => es.iter().map(depth).max().unwrap_or(0),
+        Expr::Tuple(es) => es.iter().enumerate().map(|x| depth(&x.1) + x.0 as i64).max().unwrap_or(0)
     }
 }
 
@@ -434,7 +449,22 @@ pub fn compile_main(
                         Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
                     ])
                 },
-                Op2::Index => todo!(),
+                Op2::Index => {
+                    result.append(&mut assert_type(Val::RegOffset(Reg::RBP, si * 8), Type::Tuple));
+                    result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
+                    result.append(&mut vec![
+                        // Shift number expression down to be a real number to index with.
+                        Instr::ISar(Val::Reg(Reg::RAX), Val::Imm(2)),
+                        Instr::IMov(Val::Reg(Reg::RBX), Val::RegOffset(Reg::RBP, si * 8)),
+                        Instr::ISub(Val::Reg(Reg::RBX), Val::Imm(1)),
+                        Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1)),
+                        Instr::IMul(Val::Reg(Reg::RAX), Val::Imm(8)),
+                        Instr::IJo(Val::Label("overflow_err".to_string())),
+                        Instr::IAdd(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
+                        Instr::IJo(Val::Label("overflow_err".to_string())),
+                        Instr::IMov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBX, 0)),
+                    ])
+                },
                 Op2::Greater => {
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut assert_type(
@@ -597,7 +627,29 @@ pub fn compile_main(
             result.push(Instr::ICall(Val::Label(name.to_string())));
             result.push(Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(arg_offset)));
         }
-        Expr::Tuple(values) => todo!(),
+        Expr::Tuple(values) => {
+            let mut new_stack_offset = si;
+            for value in values {
+                result.append(&mut compile_main(value, new_stack_offset, env, l, target, defs));
+                result.push(Instr::IMov(
+                    Val::RegOffset(Reg::RBP, new_stack_offset * 8),
+                    Val::Reg(Reg::RAX),
+                ));
+                new_stack_offset += 1;
+            }
+            result.push(Instr::IMov(Val::RegOffset(Reg::R15, 0), Val::Imm((values.len() as i64) << 2)));
+            for (heap_index, value_index) in (si..=(new_stack_offset - 1)).enumerate() {
+                result.append(&mut vec![
+                    Instr::IMov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBP, value_index * 8)),
+                    Instr::IMov(Val::RegOffset(Reg::R15, -((heap_index as i64) + 1) * 8), Val::Reg(Reg::RAX)),
+                ]);
+            }
+            result.append(&mut vec![
+                Instr::IMov(Val::Reg(Reg::RAX), Val::Reg(Reg::R15)),
+                Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1)),
+                Instr::IAdd(Val::Reg(Reg::R15), Val::Imm(values.len() as i64 * 8))
+            ]);
+        },
     };
     result
 }
@@ -615,7 +667,7 @@ pub fn compile(p: &Program) -> String {
     let depth = depth(&p.main);
     let offset = align_to_16(depth + 1) * 8;
     let prelude: String =
-        format!("our_code_starts_here:\n  push rbp\n  mov rbp, rsp\n  sub RSP, {offset}\n  mov [RBP - 8], RDI\n");
+        format!("our_code_starts_here:\n  push rbp\n  mov rbp, rsp\n  sub RSP, {offset}\n  mov [RBP - 8], RDI\n  mov R15, RSI\n");
     let postlude: String = format!("  add RSP, {offset}\n  pop rbp\n  ret\n");
     let mut env: im::HashMap<String, i64> = im::HashMap::new();
     env = env.update("input".to_owned(), 8);

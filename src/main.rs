@@ -151,6 +151,10 @@ overflow_err:
   mov rdi, 4
   mov rsi, rax
   call snek_error
+not_tuple_err:
+  mov rdi, 5
+  mov rsi, rax
+  call snek_error
 ",
         result
     );

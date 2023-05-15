@@ -9,7 +9,7 @@ extern "C" {
     // it does not add an underscore in front of the name.
     // Courtesy of Max New (https://maxsnew.com/teaching/eecs-483-fa22/hw_adder_assignment.html)
     #[link_name = "\x01our_code_starts_here"]
-    fn our_code_starts_here(input: i64) -> i64;
+    fn our_code_starts_here(input: i64, memory: *mut i64) -> i64;
 }
 
 #[export_name = "\x01snek_error"]
@@ -54,8 +54,10 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let input = if args.len() == 2 { &args[1] } else { "false" };
     let input = parse_input(&input);
-
-    let i: i64 = unsafe { our_code_starts_here(input) };
+    let mut memory = Vec::<i64>::with_capacity(1000000);
+    let buffer :*mut i64 = memory.as_mut_ptr();
+    
+    let i : i64 = unsafe { our_code_starts_here(input, buffer) };
     match i {
         3 => println!("false"),
         7 => println!("true"),
