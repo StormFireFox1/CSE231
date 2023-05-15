@@ -1,4 +1,6 @@
 use std::env;
+use std::collections::HashSet;
+use std::convert::TryInto;
 
 const INT_62_BIT_MIN: i64 = -2_305_843_009_213_693_952;
 const INT_62_BIT_MAX: i64 = 2_305_843_009_213_693_951;
@@ -26,14 +28,35 @@ pub extern "C" fn snek_error(errcode: i64, value: i64) {
     std::process::exit(1);
 }
 
+// Largely copied from https://github.com/ucsd-compilers-s23/lecture1/blob/b97536112db34a61c6fbd73edf39e6365e794e12/runtime/start.rs#L19C2-L37
+// Movied to adapt to our specific implementation of type tagging.
+fn snek_str(val: i64, seen : &mut HashSet<i64>) -> String {
+    if val == 7 { "true".to_string() }
+    else if val == 3 { "false".to_string() }
+    else if val & 0b11 == 0 { format!("{}", val >> 2) }
+    else if val == 1 { "nil".to_string() }
+    else if val & 0b11 == 1 {
+      if seen.contains(&val)  { return "(tuple <cyclic>)".to_string() }
+      seen.insert(val);
+      let addr = (val - 1) as *const i64;
+      let size = unsafe { *addr } >> 2;
+      let mut tuple_contents = String::from("(tuple ");
+      for i in 1..=size {
+          tuple_contents += format!("{} ", snek_str(unsafe { *addr.offset(i.try_into().expect("runtime tuple printing error")) }, seen)).as_str();
+      }
+      tuple_contents = tuple_contents.trim_end().to_owned() + ")";
+      seen.remove(&val);
+      return tuple_contents;
+    }
+    else {
+      format!("Unknown value: {}", val)
+    }
+  }
+
 #[export_name = "\x01snek_print"]
 pub extern "C" fn snek_print(value: i64) -> i64 {
-    if value == 7 { println!("true"); }
-    else if value == 3 { println!("false"); }
-    else if value & 0b11 == 0 { println!("{}", value >> 2); }
-    else {
-        println!("Unknown value: {}", value);
-    }
+    let mut seen = HashSet::<i64>::new();
+    println!("{}", snek_str(value, &mut seen));
     return value;
 }
 
@@ -59,9 +82,6 @@ fn main() {
     let buffer :*mut i64 = memory.as_mut_ptr();
     
     let i : i64 = unsafe { our_code_starts_here(input, buffer) };
-    match i {
-        3 => println!("false"),
-        7 => println!("true"),
-        _ => println!("{}", i >> 2),
-    }
+    let mut seen = HashSet::<i64>::new();
+    println!("{}", snek_str(i, &mut seen));
 }
