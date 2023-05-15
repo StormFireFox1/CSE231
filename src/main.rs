@@ -155,6 +155,10 @@ not_tuple_err:
   mov rdi, 5
   mov rsi, rax
   call snek_error
+out_of_bounds_err:
+  mov rdi, 6
+  mov rsi, rax
+  call snek_error
 ",
         result
     );

@@ -216,6 +216,21 @@ runtime_error_tests! {
         name: eventual_overflow,
         file: "eventual_overflow.snek",
         expected: "overflow",
+    },
+    {
+        name: index_on_num,
+        file: "index_on_num.snek",
+        expected: "invalid argument",
+    },
+    {
+        name: index_out_of_bounds,
+        file: "index_out_of_bounds.snek",
+        expected: "out of bounds",
+    },
+    {
+        name: add_with_tuple,
+        file: "add_with_tuple.snek",
+        expected: "invalid argument",
     }
 }
 

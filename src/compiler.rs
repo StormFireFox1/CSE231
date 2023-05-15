@@ -453,10 +453,20 @@ pub fn compile_main(
                     result.append(&mut assert_type(Val::RegOffset(Reg::RBP, si * 8), Type::Tuple));
                     result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
                     result.append(&mut vec![
-                        // Shift number expression down to be a real number to index with.
-                        Instr::ISar(Val::Reg(Reg::RAX), Val::Imm(2)),
+                        // Check to see if the index is out of bounds. Has to be bigger than 0,
+                        // but less than the size of the tuple.
+                        // First compare to 0 and if it is lower, throw an out of bounds error.
+                        Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(0)),
+                        Instr::IJl(Val::Label("out_of_bounds_err".to_string())),
+                        // Afterwards, compare the index to the size of the tuple from memory.
+                        // If it is greater than or equal to the size, throw an out of bounds error.
                         Instr::IMov(Val::Reg(Reg::RBX), Val::RegOffset(Reg::RBP, si * 8)),
                         Instr::ISub(Val::Reg(Reg::RBX), Val::Imm(1)),
+                        Instr::IMov(Val::Reg(Reg::RCX), Val::RegOffset(Reg::RBX, 0)),
+                        Instr::ICmp(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)),
+                        Instr::IJge(Val::Label("out_of_bounds_err".to_string())),
+                        // Shift number expression down to be a real number to index with.
+                        Instr::ISar(Val::Reg(Reg::RAX), Val::Imm(2)),
                         Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1)),
                         Instr::IMul(Val::Reg(Reg::RAX), Val::Imm(8)),
                         Instr::IJo(Val::Label("overflow_err".to_string())),
@@ -637,7 +647,8 @@ pub fn compile_main(
                 ));
                 new_stack_offset += 1;
             }
-            result.push(Instr::IMov(Val::RegOffset(Reg::R15, 0), Val::Imm((values.len() as i64) << 2)));
+            result.push(Instr::IMov(Val::Reg(Reg::RBX), Val::Imm((values.len() as i64) << 2)));
+            result.push(Instr::IMov(Val::RegOffset(Reg::R15, 0), Val::Reg(Reg::RBX)));
             for (heap_index, value_index) in (si..=(new_stack_offset - 1)).enumerate() {
                 result.append(&mut vec![
                     Instr::IMov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBP, value_index * 8)),
