@@ -157,8 +157,8 @@ success_tests! {
         expected: "10\n9\n8\n7\n6\n5\n4\n3\n2\n1\n0"
     },
     {
-        name: tuple_simple_examples,
-        file: "tuple_simple_examples.snek",
+        name: simple_examples,
+        file: "simple_examples.snek",
         expected: "1\ntrue\n7"
     },
     {
@@ -238,18 +238,18 @@ runtime_error_tests! {
         expected: "overflow",
     },
     {
-        name: index_on_num,
-        file: "index_on_num.snek",
+        name: error_tag,
+        file: "error-tag.snek",
         expected: "invalid argument",
     },
     {
-        name: index_out_of_bounds,
-        file: "index_out_of_bounds.snek",
+        name: error_bounds,
+        file: "error-bounds.snek",
         expected: "out of bounds",
     },
     {
-        name: add_with_tuple,
-        file: "add_with_tuple.snek",
+        name: error3,
+        file: "error3.snek",
         expected: "invalid argument",
     }
 }
