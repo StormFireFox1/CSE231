@@ -246,11 +246,6 @@ runtime_error_tests! {
         name: error_bounds,
         file: "error-bounds.snek",
         expected: "out of bounds",
-    },
-    {
-        name: error3,
-        file: "error3.snek",
-        expected: "invalid argument",
     }
 }
 
@@ -309,5 +304,10 @@ static_error_tests! {
         name: no_input_in_func,
         file: "no_input_in_func.snek",
         expected: "Unbound variable identifier input",
+    },
+    {
+        name: error3,
+        file: "error3.snek",
+        expected: "Invalid",
     },
 }
