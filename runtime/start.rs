@@ -82,13 +82,12 @@ pub unsafe fn snek_try_gc(
     // `out of memory` error.
     // Otherwise, just return the new heap pointer.
     let new_heap_ptr = snek_gc(heap_ptr, stack_base, curr_rbp, curr_rsp);
-    // if HEAP_END.sub(new_heap_ptr) < 8 * count as u64 {
-    //     eprintln!("out of memory");
-    //     std::process::exit(ErrCode::OutOfMemory as i32)
-    // } else {
-    //     new_heap_ptr
-    // }
-    new_heap_ptr
+    if ((HEAP_END as u64 - new_heap_ptr as u64) as isize) < 8 * count {
+        eprintln!("out of memory");
+        std::process::exit(ErrCode::OutOfMemory as i32)
+    } else {
+        new_heap_ptr
+    }
 }
 
 /// Marks the current vectors as live and recurses for any of its potential sub-values that
