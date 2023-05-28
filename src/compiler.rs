@@ -1,753 +1,813 @@
-use sexp::Atom::*;
-use sexp::*;
+use std::collections::{HashMap, HashSet};
 
-use crate::spec::*;
+use crate::{
+    asm::{
+        instrs_to_string, Arg32, Arg64, BinArgs, CMov, Instr, Loc, MemRef, MovArgs, Offset,
+        Reg::{self, *},
+        Reg32,
+        StrOp::Stosq,
+    },
+    mref,
+    syntax::{Expr, FunDecl, Op1, Op2, Prog, Symbol},
+};
 
-const INT_62_BIT_MIN: i64 = -2_305_843_009_213_693_952;
-const INT_62_BIT_MAX: i64 = 2_305_843_009_213_693_951;
-const KEYWORDS: [&str; 26] = [
-    "add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "input",
-    "isnum", "isbool", "loop", "break", "set!", "if", "fun", "print", "index", "tuple", "update!", "nil"
-];
+struct Session {
+    tag: u32,
+    instrs: Vec<Instr>,
+    funs: HashMap<Symbol, usize>,
+}
 
-fn align_to_16(n: i64) -> i64 {
-    if n % 2 == 0 {
-        n
-    } else {
-        n + 1
+const INVALID_ARG: &str = "invalid_argument";
+const OVERFLOW: &str = "overflow";
+const INDEX_OUT_OF_BOUNDS: &str = "index_out_of_bounds";
+const INVALID_SIZE: &str = "invalid_vec_size";
+
+const STACK_BASE: Reg = Rbx;
+const INPUT_REG: Reg = R13;
+const HEAP_END: Reg = R14;
+const HEAP_PTR: Reg = R15;
+
+const NIL: i32 = 0b001;
+const MEM_SET_VAL: i32 = NIL;
+const GC_WORD_VAL: i32 = 0;
+
+#[derive(Debug, Clone)]
+struct Ctxt<'a> {
+    env: im::HashMap<Symbol, MemRef>,
+    si: u32,
+    curr_lbl: Option<&'a str>,
+    in_fun: bool,
+}
+
+impl<'a> Ctxt<'a> {
+    fn new() -> Ctxt<'a> {
+        Ctxt {
+            si: 0,
+            curr_lbl: None,
+            env: im::HashMap::default(),
+            in_fun: false,
+        }
     }
-}
 
-// Dead code would be Bool, but we'll probably use this later.
-// For now, disable warnings.
-#[allow(dead_code)]
-enum Type {
-    Number,
-    Bool,
-    Tuple,
-}
-
-fn new_label(l: &mut i64, s: &str) -> crate::spec::Val {
-    let current = *l;
-    *l += 1;
-    Val::Label(format!("{s}_{current}"))
-}
-
-fn assert_type(val: Val, t: Type) -> Vec<Instr> {
-    let mut instrs = Vec::new();
-    instrs.push(Instr::IMov(Val::Reg(Reg::RBX), val.clone()));
-    instrs.push(Instr::IAnd(Val::Reg(Reg::RBX), Val::Imm(3)));
-    match t {
-        Type::Number => {
-            instrs.push(Instr::ICmp(Val::Reg(Reg::RBX), Val::Imm(0)));
-            instrs.push(Instr::IJne(Val::Label("not_num_err".to_string())));
+    fn with_params(params: &[Symbol]) -> Ctxt<'a> {
+        let env = params
+            .iter()
+            .enumerate()
+            .map(|(i, param)| (*param, mref![Rbp + %(8 * (i + 2))]))
+            .collect();
+        Ctxt {
+            si: 0,
+            curr_lbl: None,
+            env,
+            in_fun: true,
         }
-        Type::Bool => {
-            instrs.push(Instr::ICmp(Val::Reg(Reg::RBX), Val::Imm(3)));
-            instrs.push(Instr::IJne(Val::Label("not_bool_err".to_string())));
-        },
-        Type::Tuple => {
-            instrs.push(Instr::ICmp(Val::Reg(Reg::RBX), Val::Imm(1)));
-            instrs.push(Instr::IJne(Val::Label("not_tuple_err".to_string())));
-        }
-
     }
-    instrs
-}
 
-pub fn parse_def(s: &Sexp) -> Definition {
-    if let Sexp::List(def_list) = s {
-        if def_list.len() != 3 {
-            panic!("Invalid expression provided: alleged definition does not have all required components");
-        }
-        // Check if the first value is the "fun" keyword.
-        if def_list[0] != Sexp::Atom(S("fun".to_owned())) {
-            panic!(
-                "Invalid expression provided: alleged definition does not start with 'fun' keyword"
-            );
-        }
-
-        let fun_name: String;
-        let mut args = Vec::new();
-        // Parse the second value, which should be a list with a bunch of string atoms.
-        if let Sexp::List(vec) = &def_list[1] {
-            match &vec[..] {
-                [Sexp::Atom(S(name)), arguments @ ..] => {
-                    fun_name = name.to_string();
-                    for arg in arguments {
-                        if let Sexp::Atom(S(arg_name)) = arg {
-                            if KEYWORDS.contains(&arg_name.as_str()) {
-                                panic!("Invalid expression provided: function parameters cannot be keywords!")
-                            }
-                            args.push(arg_name.clone());
-                        } else {
-                            panic!("Invalid expression provided: alleged definition's arguments are not strings!")
-                        }
-                    }
-                }
-                _ => {
-                    panic!("Invalid expression provided: alleged definition does not contain a set of strings!")
-                }
-            }
-        } else {
-            panic!("Invalid expression provided: alleged definition does not have a function name and argument list")
-        }
-
-        // Parse the main expression as well now.
-        let body = parse_expr(&def_list[2]);
-        Definition {
-            name: fun_name,
-            params: args,
-            body: Box::new(body),
-        }
-    } else {
-        panic!("Invalid expression provided: alleged definition is not a list");
+    fn lookup(&self, x: Symbol) -> MemRef {
+        *self
+            .env
+            .get(&x)
+            .unwrap_or_else(|| raise_unbound_identifier(x))
     }
-}
 
-pub fn parse_expr(s: &Sexp) -> Expr {
-    match s {
-        Sexp::Atom(a) => match a {
-            S(string) => match string.as_str() {
-                "true" => Expr::Boolean(true),
-                "false" => Expr::Boolean(false),
-                "nil" => Expr::Nil,
-                _ => Expr::Id(string.to_string()),
+    fn set_curr_lbl(&self, lbl: &'a str) -> Ctxt<'a> {
+        Ctxt {
+            curr_lbl: Some(lbl),
+            ..self.clone()
+        }
+    }
+
+    fn next_local(&self) -> (Ctxt<'a>, MemRef) {
+        let si: i32 = (self.si + 1).try_into().unwrap();
+        (
+            Ctxt {
+                si: self.si + 1,
+                ..self.clone()
             },
-            I(imm) => {
-                if *imm < INT_62_BIT_MIN || *imm > INT_62_BIT_MAX {
-                    panic!("Invalid immediate: overflows out of 62 bits: {imm}")
-                }
-                Expr::Number(*imm)
-            }
-            F(_) => panic!("Floats not implemented in Boa!"),
-        },
-        Sexp::List(vec) => match &vec[..] {
-            [Sexp::Atom(S(op)), e] if op == "add1" => {
-                Expr::UnOp(Op1::Add1, Box::new(parse_expr(e)))
-            }
-            [Sexp::Atom(S(op)), e] if op == "sub1" => {
-                Expr::UnOp(Op1::Sub1, Box::new(parse_expr(e)))
-            }
-            [Sexp::Atom(S(op)), e] if op == "isnum" => {
-                Expr::UnOp(Op1::IsNum, Box::new(parse_expr(e)))
-            }
-            [Sexp::Atom(S(op)), e] if op == "isbool" => {
-                Expr::UnOp(Op1::IsBool, Box::new(parse_expr(e)))
-            }
-            [Sexp::Atom(S(op)), e] if op == "print" => {
-                Expr::UnOp(Op1::Print, Box::new(parse_expr(e)))
-            }
-            [Sexp::Atom(S(op)), e1, e2] if op == "+" => Expr::BinOp(
-                Op2::Plus,
-                Box::new(parse_expr(e1)),
-                Box::new(parse_expr(e2)),
-            ),
-            [Sexp::Atom(S(op)), e1, e2] if op == "-" => Expr::BinOp(
-                Op2::Minus,
-                Box::new(parse_expr(e1)),
-                Box::new(parse_expr(e2)),
-            ),
-            [Sexp::Atom(S(op)), e1, e2] if op == "*" => Expr::BinOp(
-                Op2::Times,
-                Box::new(parse_expr(e1)),
-                Box::new(parse_expr(e2)),
-            ),
-            [Sexp::Atom(S(op)), e1, e2] if op == "<" => Expr::BinOp(
-                Op2::Less,
-                Box::new(parse_expr(e1)),
-                Box::new(parse_expr(e2)),
-            ),
-            [Sexp::Atom(S(op)), e1, e2] if op == ">" => Expr::BinOp(
-                Op2::Greater,
-                Box::new(parse_expr(e1)),
-                Box::new(parse_expr(e2)),
-            ),
-            [Sexp::Atom(S(op)), e1, e2] if op == ">=" => Expr::BinOp(
-                Op2::GreaterOrEqual,
-                Box::new(parse_expr(e1)),
-                Box::new(parse_expr(e2)),
-            ),
-            [Sexp::Atom(S(op)), e1, e2] if op == "<=" => Expr::BinOp(
-                Op2::LessOrEqual,
-                Box::new(parse_expr(e1)),
-                Box::new(parse_expr(e2)),
-            ),
-            [Sexp::Atom(S(op)), e1, e2] if op == "=" => Expr::BinOp(
-                Op2::Equal,
-                Box::new(parse_expr(e1)),
-                Box::new(parse_expr(e2)),
-            ),
-            [Sexp::Atom(S(op)), e1, e2] if op == "index" => Expr::BinOp(
-                Op2::Index,
-                Box::new(parse_expr(e1)),
-                Box::new(parse_expr(e2)),
-            ),
-            [Sexp::Atom(S(op)), Sexp::Atom(S(id)), e] if op == "set!" => {
-                if KEYWORDS.contains(&id.as_str()) {
-                    panic!("Invalid expression provided")
-                } else {
-                    Expr::Set(id.to_string(), Box::new(parse_expr(e)))
-                }
-            }
-            [Sexp::Atom(S(op)), Sexp::Atom(S(id)), e1, e2] if op == "update!" => {
-                if KEYWORDS.contains(&id.as_str()) {
-                    panic!("Invalid expression provided")
-                } else {
-                    Expr::Update(id.to_string(), Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
-                }
-            }
-            [Sexp::Atom(S(op)), e1, e2, e3] if op == "if" => Expr::If(
-                Box::new(parse_expr(e1)),
-                Box::new(parse_expr(e2)),
-                Box::new(parse_expr(e3)),
-            ),
-            [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_expr(e))),
-            [Sexp::Atom(S(op)), e] if op == "loop" => Expr::Loop(Box::new(parse_expr(e))),
-            [Sexp::Atom(S(op)), es @ ..] if op == "block" => {
-                let mut exprs: Vec<Expr> = Vec::new();
-                if es.is_empty() {
-                    panic!("Invalid expression provided");
-                }
-                for expr in es {
-                    exprs.push(parse_expr(expr));
-                }
-                Expr::Block(exprs)
-            }
-            [Sexp::Atom(S(op)), e1, e2] if op == "let" => {
-                let mut bind_expr: Vec<(String, Expr)> = Vec::new();
-                // e1 should be a vector of other bindings, so:
-                if let Sexp::List(binds) = e1 {
-                    if binds.is_empty() {
-                        panic!("Invalid expression provided");
-                    }
-                    for bind in binds {
-                        if let Sexp::List(bind_args) = bind {
-                            match &bind_args[..] {
-                                [Sexp::Atom(S(id)), e] => {
-                                    // If it happens that the bind ID is some stupid
-                                    // name like let or add1 or any other Boa keyword, eject.
-                                    if KEYWORDS.contains(&id.as_str()) {
-                                        panic!("Invalid expression provided: used reserved keyword in let binding");
-                                    }
-                                    bind_expr.push((id.to_string(), parse_expr(e)));
-                                }
-                                _ => {
-                                    panic!("Invalid expression provided");
-                                }
-                            }
-                        } else {
-                            panic!("Invalid expression provided");
-                        }
-                    }
-                    Expr::Let(bind_expr, Box::new(parse_expr(e2)))
-                } else {
-                    panic!("Invalid expression provided");
-                }
-            }
-            [Sexp::Atom(S(op)), es @ ..] if op == "tuple" => {
-                let mut exprs: Vec<Expr> = Vec::new();
-                if es.is_empty() {
-                    panic!("Invalid expression provided");
-                }
-                for expr in es {
-                    exprs.push(parse_expr(expr));
-                }
-                Expr::Tuple(exprs)
-            },
-            [Sexp::Atom(S(func)), args @ ..] => {
-                if KEYWORDS.contains(&func.as_str()) {
-                    panic!("Invalid expression provided");
-                }
-                let exprs = args.iter().map(parse_expr).collect::<Vec<Expr>>();
-                Expr::Call(func.to_string(), exprs)
-            },
-            _ => panic!("Invalid expression provided"),
-        },
+            mref![Rbp - %(8 * si)],
+        )
+    }
+
+    fn add_binding(&self, x: Symbol, mem: MemRef) -> Ctxt<'a> {
+        Ctxt {
+            env: self.env.update(x, mem),
+            ..*self
+        }
     }
 }
 
-// Taken from lecture notes: https://github.com/ucsd-compilers-s23/lecture1/blob/stack_alloc_first/src/main.rs#L381
-// Generated by ChatGPT mostly, slightly modified for our purposes.
-fn depth(e: &Expr) -> i64 {
-    match e {
-        Expr::Number(_) => 0,
-        Expr::Boolean(_) => 0,
-        Expr::Nil => 0,
-        Expr::UnOp(_, expr) => depth(expr),
-        Expr::BinOp(_, expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
-        Expr::Let(binds, expr) => {
-            let bind_depth = binds
-                .iter()
-                .enumerate()
-                .map(|x| depth(&x.1 .1) + x.0 as i64)
-                .max()
-                .unwrap_or(0);
-            bind_depth + depth(expr) + binds.len() as i64
-        }
-        Expr::Id(_) => 0,
-        Expr::If(expr1, expr2, expr3) => depth(expr1).max(depth(expr2)).max(depth(expr3)),
-        Expr::Loop(expr) => depth(expr),
-        Expr::Block(exprs) => exprs.iter().map(depth).max().unwrap_or(0),
-        Expr::Break(expr) => depth(expr),
-        Expr::Set(_, expr) => depth(expr),
-        Expr::Update(_, expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
-        Expr::Call(_, es) => es.iter().map(depth).max().unwrap_or(0),
-        Expr::Tuple(es) => es.iter().enumerate().map(|x| depth(&x.1) + x.0 as i64).max().unwrap_or(0)
-    }
-}
-
-pub fn compile_definitions(defs: &im::HashMap<String, Definition>, label: &mut i64) -> Vec<Instr> {
-    let mut instrs: Vec<Instr> = Vec::new();
-    for (_, def) in defs.iter() {
-        let depth = align_to_16(depth(&def.body));
-        let offset: i64 = depth * 8;
-        let mut func_env: im::HashMap<String, i64> = im::HashMap::new();
-        for (i, arg) in def.params.iter().enumerate() {
-            func_env = func_env.update(arg.clone(), -(i as i64 + 2) * 8);
-        }
-        instrs.append(&mut vec![
-            Instr::ILabel(def.name.clone()),
-            Instr::IPush(Val::Reg(Reg::RBP)),
-            Instr::IMov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)),
-            Instr::ISub(Val::Reg(Reg::RSP), Val::Imm(offset)),
-        ]);
-        instrs.append(&mut compile_main(&def.body, 1, &func_env, label, "", defs));
-        instrs.append(&mut vec![
-            Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(offset)),
-            Instr::IPop(Val::Reg(Reg::RBP)),
-            Instr::IRet(),
-        ]);
-    }
-    instrs
-}
-
-pub fn compile_main(
-    e: &Expr,
-    si: i64,
-    env: &im::HashMap<String, i64>,
-    l: &mut i64,
-    target: &str,
-    defs: &im::HashMap<String, Definition>,
-) -> Vec<Instr> {
-    let mut result: Vec<Instr> = Vec::new();
-    match e {
-        Expr::Number(n) => result.push(Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(*n << 2))),
-        Expr::Boolean(bool) => {
-            result.push(Instr::IMov(
-                Val::Reg(Reg::RAX),
-                if *bool { Val::Imm(7) } else { Val::Imm(3) },
-            ));
-        }
-        Expr::Nil => result.push(Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(1))),
-        Expr::Id(x) => result.push(Instr::IMov(
-            Val::Reg(Reg::RAX),
-            Val::RegOffset(
-                Reg::RBP,
-                *env.get(x)
-                    .unwrap_or_else(|| panic!("Unbound variable identifier {x}")),
-            ),
-        )),
-        Expr::UnOp(op, e) => {
-            let mut instrs = compile_main(e, si, env, l, target, defs);
-            result.append(&mut instrs);
-            match op {
-                Op1::Add1 => {
-                    result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(4)));
-                    result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
-                }
-                Op1::Sub1 => {
-                    result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.push(Instr::ISub(Val::Reg(Reg::RAX), Val::Imm(4)));
-                    result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
-                }
-                Op1::IsNum => {
-                    result.append(&mut vec![
-                        Instr::IAnd(Val::Reg(Reg::RAX), Val::Imm(1)),
-                        Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(0)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
-                        Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
-                    ]);
-                }
-                Op1::IsBool => {
-                    result.append(&mut vec![
-                        Instr::IAnd(Val::Reg(Reg::RAX), Val::Imm(1)),
-                        Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(1)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
-                        Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
-                    ]);
-                }
-                Op1::Print => {
-                    // FIXME All the stack alignment procedures here are not
-                    // necessarily orthodox. This guarantees alignment, but it'd
-                    // be best to fix this at some point.
-                    //let index = align_to_16(si);
-                    // let offset = index * 8;
-                    result.append(&mut vec![
-                        Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)),
-                        Instr::ICall(Val::Label("snek_print".to_string())),
-                    ]);
-                }
-            }
-        }
-        Expr::BinOp(op, e1, e2) => {
-            let mut v1 = compile_main(e1, si, env, l, target, defs);
-            let mut v2 = compile_main(e2, si + 1, env, l, target, defs);
-            result.append(&mut v1);
-            result.push(Instr::IMov(
-                Val::RegOffset(Reg::RBP, si * 8),
-                Val::Reg(Reg::RAX),
-            ));
-            result.append(&mut v2);
-            match op {
-                Op2::Plus => {
-                    result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RBP, si * 8),
-                        Type::Number,
-                    ));
-                    result.push(Instr::IAdd(
-                        Val::Reg(Reg::RAX),
-                        Val::RegOffset(Reg::RBP, si * 8),
-                    ));
-                    result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
-                }
-                Op2::Minus => {
-                    result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RBP, si * 8),
-                        Type::Number,
-                    ));
-                    result.push(Instr::ISub(
-                        Val::RegOffset(Reg::RBP, si * 8),
-                        Val::Reg(Reg::RAX),
-                    ));
-                    result.push(Instr::IJo(Val::Label("overflow_err".to_string())));
-                    result.push(Instr::IMov(
-                        Val::Reg(Reg::RAX),
-                        Val::RegOffset(Reg::RBP, si * 8),
-                    ))
-                }
-                Op2::Times => {
-                    result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RBP, si * 8),
-                        Type::Number,
-                    ));
-                    result.push(Instr::ISar(Val::Reg(Reg::RAX), Val::Imm(2)));
-                    result.push(Instr::IMul(
-                        Val::Reg(Reg::RAX),
-                        Val::RegOffset(Reg::RBP, si * 8),
-                    ));
-                    result.push(Instr::IJo(Val::Label("overflow_err".to_string())))
-                }
-                Op2::Equal => {
-                    // Check if both types are equal. If not, throw the "Invalid argument error".
-                    result.append(&mut vec![
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
-                        Instr::IMov(Val::Reg(Reg::RCX), Val::RegOffset(Reg::RBP, si * 8)),
-                        Instr::IAnd(Val::Reg(Reg::RBX), Val::Imm(3)),
-                        Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(3)),
-                        Instr::ICmp(Val::Reg(Reg::RBX), Val::Reg(Reg::RCX)),
-                        Instr::IJne(Val::Label("invalid_arg_err".to_string())),
-                        // Afterwards, just compare the two.
-                        Instr::ICmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBP, si * 8)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
-                        Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
-                    ])
-                },
-                Op2::Index => {
-                    result.append(&mut assert_type(Val::RegOffset(Reg::RBP, si * 8), Type::Tuple));
-                    result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut vec![
-                        // Check to see if the index is out of bounds. Has to be bigger than 0,
-                        // but less than the size of the tuple.
-                        // First compare to 0 and if it is lower, throw an out of bounds error.
-                        Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(0)),
-                        Instr::IJl(Val::Label("out_of_bounds_err".to_string())),
-                        // Afterwards, compare the index to the size of the tuple from memory.
-                        // If it is greater than or equal to the size, throw an out of bounds error.
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::RegOffset(Reg::RBP, si * 8)),
-                        // Also check if the tuple is nil, because that's a nil pointer exception.
-                        Instr::ICmp(Val::Reg(Reg::RBX), Val::Imm(1)),
-                        Instr::IJe(Val::Label("null_ptr_err".to_string())),
-                        Instr::ISub(Val::Reg(Reg::RBX), Val::Imm(1)),
-                        Instr::IMov(Val::Reg(Reg::RCX), Val::RegOffset(Reg::RBX, 0)),
-                        Instr::ICmp(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)),
-                        Instr::IJge(Val::Label("out_of_bounds_err".to_string())),
-                        // Shift number expression down to be a real number to index with.
-                        Instr::ISar(Val::Reg(Reg::RAX), Val::Imm(2)),
-                        Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1)),
-                        Instr::IMul(Val::Reg(Reg::RAX), Val::Imm(8)),
-                        Instr::IJo(Val::Label("overflow_err".to_string())),
-                        Instr::IAdd(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
-                        Instr::IJo(Val::Label("overflow_err".to_string())),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBX, 0)),
-                    ])
-                },
-                Op2::Greater => {
-                    result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RBP, si * 8),
-                        Type::Number,
-                    ));
-                    result.append(&mut vec![
-                        Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
-                        Instr::ICMovG(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
-                    ])
-                }
-                Op2::GreaterOrEqual => {
-                    result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RBP, si * 8),
-                        Type::Number,
-                    ));
-                    result.append(&mut vec![
-                        Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
-                        Instr::ICMovGE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
-                    ])
-                }
-                Op2::Less => {
-                    result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RBP, si * 8),
-                        Type::Number,
-                    ));
-                    result.append(&mut vec![
-                        Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
-                        Instr::ICMovL(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
-                    ])
-                }
-                Op2::LessOrEqual => {
-                    result.append(&mut assert_type(Val::Reg(Reg::RAX), Type::Number));
-                    result.append(&mut assert_type(
-                        Val::RegOffset(Reg::RBP, si * 8),
-                        Type::Number,
-                    ));
-                    result.append(&mut vec![
-                        Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
-                        Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
-                        Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
-                        Instr::ICMovLE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
-                    ])
-                }
-            }
-        }
-        Expr::Let(v, e) => {
-            let mut new_stack_offset = si;
-            let mut new_binds = im::HashMap::new();
-            for tuple in v {
-                let with_binds_env = new_binds
-                    .clone()
-                    .intersection(env.clone())
-                    .union(new_binds.clone().difference(env.clone()));
-                if new_binds.contains_key(&tuple.0) {
-                    panic!("Duplicate binding");
-                }
-                result.append(&mut compile_main(
-                    &tuple.1,
-                    new_stack_offset,
-                    &with_binds_env,
-                    l,
-                    target,
-                    defs,
-                ));
-                result.push(Instr::IMov(
-                    Val::RegOffset(Reg::RBP, new_stack_offset * 8),
-                    Val::Reg(Reg::RAX),
-                ));
-                new_binds.insert(tuple.0.clone(), new_stack_offset * 8);
-                new_stack_offset += 1;
-            }
-            let with_binds_env = new_binds
-                .clone()
-                .intersection(env.clone())
-                .union(new_binds.clone().difference(env.clone()));
-            let mut new_instrs =
-                compile_main(e, new_stack_offset, &with_binds_env, l, target, defs);
-            result.append(&mut new_instrs);
-        }
-        Expr::If(cond, then, alt) => {
-            let end_label = new_label(l, "if_end");
-            let else_label = new_label(l, "if_else");
-            let mut cond_instrs = compile_main(cond, si, env, &mut (*l + 1), target, defs);
-            let mut then_instrs = compile_main(then, si, env, &mut (*l + 2), target, defs);
-            let mut alt_instrs = compile_main(alt, si, env, &mut (*l + 3), target, defs);
-            result.append(&mut cond_instrs);
-            result.push(Instr::ICmp(Val::Reg(Reg::RAX), Val::Imm(3)));
-            result.push(Instr::IJe(else_label.clone()));
-            result.append(&mut then_instrs);
-            result.push(Instr::IJmp(end_label.clone()));
-            result.push(Instr::ILabel(else_label.to_string()));
-            result.append(&mut alt_instrs);
-            result.push(Instr::ILabel(end_label.to_string()));
-        }
-        Expr::Loop(e) => {
-            let start_loop_label = new_label(l, "loop_start");
-            let end_loop_label = new_label(l, "loop_end");
-            let mut e_instrs =
-                compile_main(e, si, env, &mut (*l + 1), &end_loop_label.to_string(), defs);
-            result.push(Instr::ILabel(start_loop_label.to_string()));
-            result.append(&mut e_instrs);
-            result.push(Instr::IJmp(Val::Label(start_loop_label.to_string())));
-            result.push(Instr::ILabel(end_loop_label.to_string()));
-        }
-        Expr::Break(e) => {
-            if target.is_empty() {
-                panic!("break outside of loop");
-            }
-            let mut e_instrs = compile_main(e, si, env, &mut (*l + 1), "", defs);
-            result.append(&mut e_instrs);
-            result.push(Instr::IJmp(Val::Label(target.to_string())));
-        }
-        Expr::Set(id, e) => {
-            result.append(&mut compile_main(e, si, env, l, target, defs));
-            result.push(Instr::IMov(
-                Val::RegOffset(
-                    Reg::RBP,
-                    *env.get(id)
-                        .unwrap_or_else(|| panic!("Unbound variable identifier {id}")),
-                ),
-                Val::Reg(Reg::RAX),
-            ));
-        }
-        Expr::Update(id, index, value) => {
-            let mut index_instrs = compile_main(index, si, env, l, target, defs);
-            let mut value_instrs = compile_main(value, si + 1, env, l, target, defs);
-            result.append(&mut index_instrs);
-            result.push(Instr::IMov(
-                Val::RegOffset(Reg::RBP, si * 8),
-                Val::Reg(Reg::RAX),
-            ));
-            result.append(&mut value_instrs);
-            let tuple = Val::RegOffset(Reg::RBP, *env.get(id).unwrap_or_else(|| panic!("Unbound variable identifier {id}")));
-            result.append(&mut assert_type(tuple.clone(), Type::Tuple));
-            result.append(&mut assert_type(Val::RegOffset(Reg::RBP, si * 8), Type::Number));
-            result.push(Instr::IMov(Val::Reg(Reg::RCX), Val::Reg(Reg::RAX)));
-            result.append(&mut vec![
-                // Check to see if the index is out of bounds. Has to be bigger than 0,
-                // but less than the size of the tuple.
-                // First compare to 0 and if it is lower, throw an out of bounds error.
-                Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(0)),
-                Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
-                Instr::IJl(Val::Label("out_of_bounds_err".to_string())),
-                // Afterwards, compare the index to the size of the tuple from memory.
-                // If it is greater than or equal to the size, throw an out of bounds error.
-                Instr::IMov(Val::Reg(Reg::RBX), tuple.clone()),
-                // Also check if the tuple is nil, because that's a null pointer exception.
-                Instr::ICmp(Val::Reg(Reg::RBX), Val::Imm(1)),
-                Instr::IJe(Val::Label("null_ptr_err".to_string())),
-                Instr::ISub(Val::Reg(Reg::RBX), Val::Imm(1)),
-                Instr::IMov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBX, 0)),
-                Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
-                Instr::IJge(Val::Label("out_of_bounds_err".to_string())),
-                Instr::IMov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBP, si * 8)),
-                Instr::ISar(Val::Reg(Reg::RAX), Val::Imm(2)),
-                Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1)),
-                Instr::IMul(Val::Reg(Reg::RAX), Val::Imm(8)),
-                Instr::IJo(Val::Label("overflow_err".to_string())),
-                Instr::IAdd(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
-                Instr::IJo(Val::Label("overflow_err".to_string())),
-                Instr::IMov(Val::RegOffset(Reg::RBX, 0), Val::Reg(Reg::RCX)),
-                Instr::IMov(Val::Reg(Reg::RAX), tuple),
+pub fn compile(prg: &Prog) -> String {
+    match fun_arity_map(prg) {
+        Ok(funs) => {
+            let mut sess = Session::new(funs);
+            let locals = depth(&prg.main);
+            sess.compile_funs(&prg.funs);
+            sess.emit_instr(Instr::Label("our_code_starts_here".to_string()));
+            let callee_saved = [Rbp, STACK_BASE, INPUT_REG, HEAP_END, HEAP_PTR];
+            sess.fun_entry(locals, &callee_saved);
+            sess.emit_instrs([
+                Instr::Mov(MovArgs::ToReg(STACK_BASE, Arg64::Reg(Rbp))),
+                Instr::Mov(MovArgs::ToReg(INPUT_REG, Arg64::Reg(Rdi))),
+                Instr::Mov(MovArgs::ToReg(HEAP_PTR, Arg64::Reg(Rsi))),
+                Instr::Mov(MovArgs::ToReg(HEAP_END, Arg64::Reg(Rdx))),
             ]);
-        }
-        Expr::Block(v) => {
-            for e in v {
-                result.append(&mut compile_main(e, si, env, l, target, defs));
-            }
-        }
-        Expr::Call(name, args) => {
-            // Check to see if we've called an existing function with the proper number of arguments.
-            let func_def = defs
-                .get(name)
-                .expect("Invalid expression provided: Call to undefined function");
-            if args.len() != func_def.params.len() {
-                panic!("Invalid expression provided: Different number of arguments for function call to {name}. Expected {}, got {}", func_def.params.len(), args.len());
-            }
+            sess.compile_expr(&Ctxt::new(), Loc::Reg(Rax), &prg.main);
+            sess.fun_exit(locals, &callee_saved);
 
-            // Ok, now we've checked for a valid call, so let's do it!
-            // The idea is simple. Adjust the stack pointer upwards by the amount needed
-            // to fit each argument. Then, make sure that compile_defs has all the envs
-            // in the same spot.
-            let arg_offset = align_to_16(args.len() as i64) * 8;
-            let extra_space = arg_offset - (args.len() as i64) * 8;
-            if extra_space != 0 {
-                result.push(Instr::IPush(Val::Imm(0)));
-            }
-            for arg in args.iter().rev() {
-                result.append(&mut compile_main(arg, si, env, l, target, defs));
-                result.push(Instr::IPush(Val::Reg(Reg::RAX)))
-            }
-            result.push(Instr::ICall(Val::Label(name.to_string())));
-            result.push(Instr::IAdd(Val::Reg(Reg::RSP), Val::Imm(arg_offset)));
+            format!(
+                "
+section .text
+extern snek_error
+extern snek_print
+extern snek_alloc_vec
+extern snek_print_stack
+extern snek_try_gc
+extern snek_gc
+global our_code_starts_here
+{}
+{INVALID_ARG}:
+  mov edi, 1
+  call snek_error
+{OVERFLOW}:
+  mov edi, 2
+  call snek_error
+{INDEX_OUT_OF_BOUNDS}:
+  mov edi, 3
+  call snek_error
+{INVALID_SIZE}:
+  mov edi, 4
+  call snek_error
+",
+                instrs_to_string(&sess.instrs)
+            )
         }
-        Expr::Tuple(values) => {
-            let mut new_stack_offset = si;
-            for value in values {
-                result.append(&mut compile_main(value, new_stack_offset, env, l, target, defs));
-                result.push(Instr::IMov(
-                    Val::RegOffset(Reg::RBP, new_stack_offset * 8),
-                    Val::Reg(Reg::RAX),
-                ));
-                new_stack_offset += 1;
+        Err(dup) => raise_duplicate_function(dup),
+    }
+}
+
+impl Session {
+    fn new(funs: HashMap<Symbol, usize>) -> Session {
+        Session {
+            tag: 0,
+            instrs: vec![],
+            funs,
+        }
+    }
+
+    fn fun_entry(&mut self, locals: u32, callee_saved: &[Reg]) {
+        let size = frame_size(locals, callee_saved);
+        for reg in callee_saved {
+            self.emit_instr(Instr::Push(Arg32::Reg(*reg)));
+        }
+        self.emit_instrs([
+            Instr::Mov(MovArgs::ToReg(Rbp, Arg64::Reg(Rsp))),
+            Instr::Sub(BinArgs::ToReg(Rsp, Arg32::Imm(8 * (size as i32)))),
+        ]);
+        self.memset(0, size, Reg32::Imm(MEM_SET_VAL));
+    }
+
+    fn fun_exit(&mut self, locals: u32, calle_saved: &[Reg]) {
+        let size = frame_size(locals, calle_saved);
+        self.emit_instrs([Instr::Add(BinArgs::ToReg(
+            Rsp,
+            Arg32::Imm(8 * (size as i32)),
+        ))]);
+        for reg in calle_saved.iter().rev() {
+            self.emit_instr(Instr::Pop(Loc::Reg(*reg)));
+        }
+        self.emit_instr(Instr::Ret);
+    }
+
+    fn compile_funs(&mut self, funs: &[FunDecl]) {
+        for fun in funs {
+            self.compile_fun(fun)
+        }
+    }
+
+    fn compile_fun(&mut self, fun: &FunDecl) {
+        check_dup_bindings(&fun.params);
+        let locals = depth(&fun.body);
+        self.emit_instr(Instr::Label(fun_label(fun.name)));
+        self.fun_entry(locals, &[Rbp]);
+        self.compile_expr(&Ctxt::with_params(&fun.params), Loc::Reg(Rax), &fun.body);
+        self.fun_exit(locals, &[Rbp]);
+    }
+
+    fn compile_expr(&mut self, cx: &Ctxt, dst: Loc, e: &Expr) {
+        match e {
+            Expr::Number(n) => self.move_to(dst, n.repr64()),
+            Expr::Boolean(b) => self.move_to(dst, b.repr64()),
+            Expr::Var(x) => self.move_to(dst, Arg32::Mem(cx.lookup(*x))),
+            Expr::Let(bindings, body) => {
+                check_dup_bindings(bindings.iter().map(|(id, _)| id));
+                let mut currcx = cx.clone();
+                for (var, rhs) in bindings {
+                    let (nextcx, mem) = currcx.next_local();
+                    self.compile_expr(&currcx, Loc::Mem(mem), rhs);
+                    currcx = nextcx.add_binding(*var, mem);
+                }
+                self.compile_expr(&currcx, Loc::Reg(Rax), body);
+                self.memset(cx.si, bindings.len() as u32, Reg32::Imm(MEM_SET_VAL));
+                self.move_to(dst, Arg64::Reg(Rax))
             }
-            result.push(Instr::IMov(Val::Reg(Reg::RBX), Val::Imm((values.len() as i64) << 2)));
-            result.push(Instr::IMov(Val::RegOffset(Reg::R15, 0), Val::Reg(Reg::RBX)));
-            for (heap_index, value_index) in (si..=(new_stack_offset - 1)).enumerate() {
-                result.append(&mut vec![
-                    Instr::IMov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBP, value_index * 8)),
-                    Instr::IMov(Val::RegOffset(Reg::R15, -((heap_index as i64) + 1) * 8), Val::Reg(Reg::RAX)),
+            Expr::UnOp(op, e) => self.compile_un_op(cx, dst, *op, e),
+            Expr::BinOp(op, e1, e2) => self.compile_bin_op(cx, dst, *op, e1, e2),
+            Expr::If(e1, e2, e3) => {
+                let tag = self.next_tag();
+                let else_lbl = format!("if_else_{tag}");
+                let end_lbl = format!("if_end_{tag}");
+
+                self.compile_expr(cx, Loc::Reg(Rax), e1);
+                self.emit_instrs([
+                    Instr::Cmp(BinArgs::ToReg(Rax, false.repr32().into())),
+                    Instr::Je(else_lbl.clone()),
+                ]);
+                self.compile_expr(cx, dst, e2);
+                self.emit_instrs([Instr::Jmp(end_lbl.clone()), Instr::Label(else_lbl)]);
+                self.compile_expr(cx, dst, e3);
+                self.emit_instr(Instr::Label(end_lbl))
+            }
+            Expr::Loop(e) => {
+                let tag = self.next_tag();
+                let loop_start_lbl = format!("loop_start_{tag}");
+                let loop_end_lbl = format!("loop_end_{tag}");
+
+                self.emit_instr(Instr::Label(loop_start_lbl.clone()));
+                self.compile_expr(&cx.set_curr_lbl(&loop_end_lbl), dst, e);
+                self.emit_instrs([Instr::Jmp(loop_start_lbl), Instr::Label(loop_end_lbl)])
+            }
+            Expr::Break(e) => {
+                if let Some(lbl) = cx.curr_lbl {
+                    self.compile_expr(cx, dst, e);
+                    self.emit_instr(Instr::Jmp(lbl.to_string()));
+                } else {
+                    raise_break_outside_loop()
+                }
+            }
+            Expr::Set(var, e) => {
+                let mem = cx.lookup(*var);
+                self.compile_expr(cx, Loc::Mem(mem), e);
+                self.move_to(dst, Arg32::Mem(mem));
+            }
+            Expr::Block(es) => {
+                for e in &es[..es.len() - 1] {
+                    self.compile_expr(cx, Loc::Reg(Rcx), e);
+                }
+                self.compile_expr(cx, dst, &es[es.len() - 1]);
+            }
+            Expr::Call(fun, args) => {
+                let Some(arity) = self.funs.get(fun) else {
+                    return raise_undefined_fun(*fun);
+                };
+                if args.len() != *arity {
+                    raise_wrong_number_of_args(*fun, *arity, args.len());
+                }
+
+                let mut nargs = args.len() as i32;
+                if nargs % 2 == 0 {
+                    self.emit_instr(Instr::Sub(BinArgs::ToReg(Rsp, Arg32::Imm(8 * nargs))));
+                } else {
+                    self.emit_instrs([
+                        Instr::Push(Arg32::Imm(MEM_SET_VAL)),
+                        Instr::Sub(BinArgs::ToReg(Rsp, Arg32::Imm(8 * nargs))),
+                    ]);
+                    nargs += 1;
+                }
+                for (i, arg) in args.iter().enumerate() {
+                    self.compile_expr(cx, Loc::Mem(mref![Rsp + %(8 * i)]), arg);
+                }
+                self.emit_instrs([
+                    Instr::Call(fun_label(*fun)),
+                    Instr::Add(BinArgs::ToReg(Rsp, Arg32::Imm(8 * nargs))),
+                ]);
+                self.move_to(dst, Arg64::Reg(Rax));
+            }
+            Expr::Nil => {
+                self.move_to(dst, Arg32::Imm(NIL));
+            }
+            Expr::Input => {
+                if cx.in_fun {
+                    raise_input_in_fun()
+                } else {
+                    self.move_to(dst, Arg32::Reg(INPUT_REG))
+                }
+            }
+            Expr::MakeVec(size, elem) => {
+                let tag = self.next_tag();
+                let alloc_finish_lbl = format!("make_vec_alloc_finish_{tag}");
+
+                let (nextcx, size_mem) = cx.next_local();
+                let (_, elem_mem) = nextcx.next_local();
+
+                self.compile_expr(cx, Loc::Mem(size_mem), size);
+                self.compile_expr(&nextcx, Loc::Mem(elem_mem), elem);
+                self.emit_instr(Instr::Mov(MovArgs::ToReg(Rdi, Arg64::Mem(size_mem))));
+                self.check_is_num(Rdi);
+                self.emit_instrs([
+                    Instr::Sar(BinArgs::ToReg(Rdi, Arg32::Imm(1))),
+                    Instr::Cmp(BinArgs::ToReg(Rdi, Arg32::Imm(0))),
+                    Instr::Jl(INVALID_SIZE.to_string()),
+                    Instr::Lea(Rax, mref![HEAP_PTR + 8 * Rdi + 16]),
+                    Instr::Cmp(BinArgs::ToReg(Rax, Arg32::Reg(HEAP_END))),
+                    Instr::Jle(alloc_finish_lbl.clone()),
+                    // Call try_gc to ensure we can allocate `size + 2` quad words
+                    // (1 extra for the size of the vector + 1 extra for the GC metadata)
+                    Instr::Add(BinArgs::ToReg(Rdi, Arg32::Imm(2))),
+                    Instr::Mov(MovArgs::ToReg(Rsi, Arg64::Reg(HEAP_PTR))),
+                    Instr::Mov(MovArgs::ToReg(Rdx, Arg64::Reg(STACK_BASE))),
+                    Instr::Mov(MovArgs::ToReg(Rcx, Arg64::Reg(Rbp))),
+                    Instr::Mov(MovArgs::ToReg(R8, Arg64::Reg(Rsp))),
+                    Instr::Call("snek_try_gc".to_string()),
+                    Instr::Mov(MovArgs::ToReg(HEAP_PTR, Arg64::Reg(Rax))),
+                    Instr::Label(alloc_finish_lbl),
+                    // Load size again in %rsi
+                    Instr::Mov(MovArgs::ToReg(Rsi, Arg64::Mem(size_mem))),
+                    Instr::Sar(BinArgs::ToReg(Rsi, Arg32::Imm(1))),
+                    // Write GC word in HEAP_PTR
+                    Instr::Mov(MovArgs::ToMem(mref!(HEAP_PTR + 0), Reg32::Imm(GC_WORD_VAL))),
+                    // Write size in HEAP_PTR + 8
+                    Instr::Mov(MovArgs::ToMem(mref!(HEAP_PTR + 8), Reg32::Reg(Rsi))),
+                    // Fill vector using `rep stosq` (%rdi = ptr, %rcx = count, %rax = val)
+                    Instr::Lea(Rdi, mref!(HEAP_PTR + 16)),
+                    Instr::Mov(MovArgs::ToReg(Rcx, Arg64::Reg(Rsi))),
+                    Instr::Mov(MovArgs::ToReg(Rax, Arg64::Mem(elem_mem))),
+                    Instr::Rep(Stosq),
+                    // Add tag to heap ptr and store it in %rax as the result of the expression
+                    Instr::Lea(Rax, mref!(HEAP_PTR + 1)),
+                    // Bump heap ptr
+                    Instr::Lea(HEAP_PTR, mref!(HEAP_PTR + 8 * Rsi + 16)),
+                ]);
+                self.memset(cx.si, 2, Reg32::Imm(MEM_SET_VAL));
+                self.move_to(dst, Arg64::Reg(Rax));
+            }
+            Expr::Vec(elems) => {
+                let tag = self.next_tag();
+                let vec_alloc_finish_lbl = format!("vec_alloc_finish_{tag}");
+
+                let size: i32 = elems.len().try_into().unwrap();
+                let mut currcx = cx.clone();
+                for elem in elems {
+                    let (nextcx, mem) = currcx.next_local();
+                    self.compile_expr(&currcx, Loc::Mem(mem), elem);
+                    currcx = nextcx;
+                }
+
+                self.emit_instrs([
+                    Instr::Lea(Rax, mref![HEAP_PTR + %(8 * (size + 2))]),
+                    Instr::Cmp(BinArgs::ToReg(Rax, Arg32::Reg(HEAP_END))),
+                    Instr::Jle(vec_alloc_finish_lbl.clone()),
+                    // Call try_gc to ensure we can allocate `size + 2` quad words
+                    // (1 extra for the size of the vector + 1 extra for the GC metadata)
+                    Instr::Mov(MovArgs::ToReg(Rdi, Arg64::Imm(size as i64 + 2))),
+                    Instr::Mov(MovArgs::ToReg(Rsi, Arg64::Reg(HEAP_PTR))),
+                    Instr::Mov(MovArgs::ToReg(Rdx, Arg64::Reg(STACK_BASE))),
+                    Instr::Mov(MovArgs::ToReg(Rcx, Arg64::Reg(Rbp))),
+                    Instr::Mov(MovArgs::ToReg(R8, Arg64::Reg(Rsp))),
+                    Instr::Call("snek_try_gc".to_string()),
+                    Instr::Mov(MovArgs::ToReg(HEAP_PTR, Arg64::Reg(Rax))),
+                    Instr::Label(vec_alloc_finish_lbl),
+                    // Write GC word in HEAP_PTR
+                    Instr::Mov(MovArgs::ToMem(mref!(HEAP_PTR + 0), Reg32::Imm(GC_WORD_VAL))),
+                    // Write size in HEAP_PTR + 8
+                    Instr::Mov(MovArgs::ToMem(mref!(HEAP_PTR + 8), Reg32::Imm(size))),
+                ]);
+
+                for i in 0..elems.len() as u32 {
+                    self.move_to(
+                        Loc::Mem(mref!(HEAP_PTR + %(8 * (i + 2)))),
+                        Arg64::Mem(mref!(Rbp - %(8 * (cx.si + i + 1)))),
+                    )
+                }
+
+                self.emit_instrs([
+                    // Add tag to heap ptr and store it in %rax as the result of the expression
+                    Instr::Lea(Rax, mref!(HEAP_PTR + 1)),
+                    // Bump heap ptr
+                    Instr::Lea(HEAP_PTR, mref!(HEAP_PTR + %(8 * (size + 2)))),
+                ]);
+                self.memset(cx.si, elems.len() as u32, Reg32::Imm(MEM_SET_VAL));
+                self.move_to(dst, Arg64::Reg(Rax));
+            }
+            Expr::VecSet(vec, idx, elem) => {
+                let (nextcx1, vec_mem) = cx.next_local();
+                let (nextcx2, idx_mem) = nextcx1.next_local();
+
+                self.compile_expr(cx, Loc::Mem(vec_mem), vec);
+                self.compile_expr(&nextcx1, Loc::Mem(idx_mem), idx);
+                self.compile_expr(&nextcx2, Loc::Reg(Rsi), elem);
+
+                self.emit_instrs([
+                    Instr::Mov(MovArgs::ToReg(Rax, Arg64::Mem(vec_mem))),
+                    Instr::Mov(MovArgs::ToReg(Rdi, Arg64::Mem(idx_mem))),
+                ]);
+                self.memset(cx.si, 2, Reg32::Imm(MEM_SET_VAL));
+                self.check_is_vec(Rax);
+                self.check_is_not_nil(Rax);
+                self.check_is_num(Rdi);
+                self.emit_instrs([
+                    Instr::Mov(MovArgs::ToReg(Rcx, Arg64::Reg(Rax))),
+                    Instr::Sub(BinArgs::ToReg(Rcx, Arg32::Imm(1))),
+                    Instr::Sar(BinArgs::ToReg(Rdi, Arg32::Imm(1))),
+                    Instr::Cmp(BinArgs::ToReg(Rdi, Arg32::Imm(0))),
+                    Instr::Jl(INDEX_OUT_OF_BOUNDS.to_string()),
+                    Instr::Mov(MovArgs::ToReg(Rdx, Arg64::Mem(mref![Rcx + 8]))),
+                    Instr::Cmp(BinArgs::ToReg(Rdi, Arg32::Reg(Rdx))),
+                    Instr::Jge(INDEX_OUT_OF_BOUNDS.to_string()),
+                    Instr::Mov(MovArgs::ToMem(mref![Rcx + 8 * Rdi + 16], Reg32::Reg(Rsi))),
+                ]);
+                self.move_to(dst, Arg64::Reg(Rax));
+            }
+            Expr::VecGet(vec, idx) => {
+                let (nextcx, vec_mem) = cx.next_local();
+
+                self.compile_expr(cx, Loc::Mem(vec_mem), vec);
+                self.compile_expr(&nextcx, Loc::Reg(Rdi), idx);
+
+                self.emit_instrs([Instr::Mov(MovArgs::ToReg(Rax, Arg64::Mem(vec_mem)))]);
+                self.memset(cx.si, 1, Reg32::Imm(MEM_SET_VAL));
+                self.check_is_vec(Rax);
+                self.check_is_not_nil(Rax);
+                self.check_is_num(Rdi);
+                self.emit_instrs([
+                    Instr::Sub(BinArgs::ToReg(Rax, Arg32::Imm(1))),
+                    Instr::Mov(MovArgs::ToReg(Rdx, Arg64::Mem(mref![Rax + 8]))),
+                    Instr::Sar(BinArgs::ToReg(Rdi, Arg32::Imm(1))),
+                    Instr::Cmp(BinArgs::ToReg(Rdi, Arg32::Imm(0))),
+                    Instr::Jl(INDEX_OUT_OF_BOUNDS.to_string()),
+                    Instr::Cmp(BinArgs::ToReg(Rdi, Arg32::Reg(Rdx))),
+                    Instr::Jge(INDEX_OUT_OF_BOUNDS.to_string()),
+                    Instr::Mov(MovArgs::ToReg(Rax, Arg64::Mem(mref![Rax + 8 * Rdi + 16]))),
+                ]);
+                self.move_to(dst, Arg64::Reg(Rax));
+            }
+            Expr::VecLen(vec) => {
+                self.compile_expr(cx, Loc::Reg(Rax), vec);
+                self.check_is_vec(Rax);
+                self.check_is_not_nil(Rax);
+                self.emit_instrs([
+                    Instr::Sub(BinArgs::ToReg(Rax, Arg32::Imm(1))),
+                    Instr::Mov(MovArgs::ToReg(Rax, Arg64::Mem(mref![Rax + 8]))),
+                    Instr::Sal(BinArgs::ToReg(Rax, Arg32::Imm(1))),
+                ]);
+                self.move_to(dst, Arg64::Reg(Rax));
+            }
+            Expr::Gc => {
+                self.emit_instrs([
+                    Instr::Mov(MovArgs::ToReg(Rdi, Arg64::Reg(HEAP_PTR))),
+                    Instr::Mov(MovArgs::ToReg(Rsi, Arg64::Reg(STACK_BASE))),
+                    Instr::Mov(MovArgs::ToReg(Rdx, Arg64::Reg(Rbp))),
+                    Instr::Mov(MovArgs::ToReg(Rcx, Arg64::Reg(Rsp))),
+                    Instr::Call("snek_gc".to_string()),
+                    Instr::Mov(MovArgs::ToReg(HEAP_PTR, Arg64::Reg(Rax))),
+                ]);
+                self.move_to(dst, 0.repr32());
+            }
+            Expr::PrintStack => {
+                self.emit_instrs([
+                    Instr::Mov(MovArgs::ToReg(Rdi, Arg64::Reg(STACK_BASE))),
+                    Instr::Mov(MovArgs::ToReg(Rsi, Arg64::Reg(Rbp))),
+                    Instr::Mov(MovArgs::ToReg(Rdx, Arg64::Reg(Rsp))),
+                    Instr::Call("snek_print_stack".to_string()),
+                ]);
+                self.move_to(dst, 0.repr32());
+            }
+        }
+    }
+
+    fn compile_un_op(&mut self, cx: &Ctxt, dst: Loc, op: Op1, e: &Expr) {
+        self.compile_expr(cx, Loc::Reg(Rax), e);
+        match op {
+            Op1::Add1 => {
+                self.check_is_num(Reg::Rax);
+                self.emit_instrs([
+                    Instr::Add(BinArgs::ToReg(Rax, 1.repr32())),
+                    Instr::Jo(OVERFLOW.to_string()),
+                ])
+            }
+            Op1::Sub1 => {
+                self.check_is_num(Reg::Rax);
+                self.emit_instrs([
+                    Instr::Sub(BinArgs::ToReg(Rax, 1.repr32())),
+                    Instr::Jo(OVERFLOW.to_string()),
+                ])
+            }
+            Op1::IsNum => {
+                self.emit_instrs([
+                    Instr::And(BinArgs::ToReg(Rax, Arg32::Imm(0b001))),
+                    Instr::Mov(MovArgs::ToReg(Rax, false.repr64())),
+                    Instr::Mov(MovArgs::ToReg(Rcx, true.repr64())),
+                    Instr::CMov(CMov::Z(Rax, Arg64::Reg(Rcx))),
                 ]);
             }
-            result.append(&mut vec![
-                Instr::IMov(Val::Reg(Reg::RAX), Val::Reg(Reg::R15)),
-                Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1)),
-                Instr::IAdd(Val::Reg(Reg::R15), Val::Imm((values.len() as i64 + 1) * 8))
-            ]);
-        },
-    };
-    result
-}
-
-pub fn instrs_to_string(instrs: &Vec<Instr>) -> String {
-    let mut result = String::new();
-    for instr in instrs {
-        result += &format!("{instr}").to_string();
-        result += "\n";
+            Op1::IsBool => {
+                self.emit_instrs([
+                    Instr::And(BinArgs::ToReg(Rax, Arg32::Imm(0b011))),
+                    Instr::Cmp(BinArgs::ToReg(Rax, Arg32::Imm(0b011))),
+                    Instr::Mov(MovArgs::ToReg(Rax, false.repr64())),
+                    Instr::Mov(MovArgs::ToReg(Rcx, true.repr64())),
+                    Instr::CMov(CMov::E(Rax, Arg64::Reg(Rcx))),
+                ]);
+            }
+            Op1::IsVec => {
+                self.emit_instrs([
+                    Instr::Mov(MovArgs::ToReg(Rdx, Arg64::Reg(Rax))),
+                    Instr::Mov(MovArgs::ToReg(Rax, true.repr64())),
+                    Instr::Mov(MovArgs::ToReg(Rcx, false.repr64())),
+                    Instr::Test(BinArgs::ToReg(Rdx, Arg32::Imm(0b01))),
+                    Instr::CMov(CMov::Z(Rax, Arg64::Reg(Rcx))),
+                    Instr::Test(BinArgs::ToReg(Rdx, Arg32::Imm(0b10))),
+                    Instr::CMov(CMov::NZ(Rax, Arg64::Reg(Rcx))),
+                ]);
+            }
+            Op1::Print => self.emit_instrs([
+                Instr::Mov(MovArgs::ToReg(Rdi, Arg64::Reg(Rax))),
+                Instr::Call("snek_print".to_string()),
+            ]),
+        }
+        self.move_to(dst, Arg32::Reg(Rax));
     }
-    result.to_string()
+
+    fn compile_bin_op(&mut self, cx: &Ctxt, dst: Loc, op: Op2, e1: &Expr, e2: &Expr) {
+        let (nextcx, mem) = cx.next_local();
+        self.compile_expr(cx, Loc::Mem(mem), e1);
+        self.compile_expr(&nextcx, Loc::Reg(Rcx), e2);
+        self.emit_instr(Instr::Mov(MovArgs::ToReg(Rax, Arg64::Mem(mem))));
+        self.memset(cx.si, 1, Reg32::Imm(MEM_SET_VAL));
+
+        match op {
+            Op2::Plus
+            | Op2::Minus
+            | Op2::Times
+            | Op2::Divide
+            | Op2::Greater
+            | Op2::GreaterEqual
+            | Op2::Less
+            | Op2::LessEqual => {
+                self.check_is_num(Rax);
+                self.check_is_num(Rcx);
+            }
+            Op2::Equal => {
+                let tag = self.next_tag();
+                let check_eq_finish_lbl = format!("check_eq_finish_{tag}");
+                // if (%rax ^ %rcx) & 0b11 == 0 {
+                //     jmp check_eq_finish
+                // } else if (%rax | %rcx) & 0b01 != 0 {
+                //     jmp invalid_arg
+                // }
+                self.emit_instrs([
+                    Instr::Mov(MovArgs::ToReg(Rdx, Arg64::Reg(Rax))),
+                    Instr::Xor(BinArgs::ToReg(Rdx, Arg32::Reg(Rcx))),
+                    Instr::Test(BinArgs::ToReg(Rdx, Arg32::Imm(0b11))),
+                    Instr::Jz(check_eq_finish_lbl.to_string()),
+                    Instr::Mov(MovArgs::ToReg(Rdx, Arg64::Reg(Rax))),
+                    Instr::Or(BinArgs::ToReg(Rdx, Arg32::Reg(Rcx))),
+                    Instr::Test(BinArgs::ToReg(Rdx, Arg32::Imm(0b01))),
+                    Instr::Jnz(INVALID_ARG.to_string()),
+                    Instr::Label(check_eq_finish_lbl.to_string()),
+                ]);
+            }
+        }
+
+        match op {
+            Op2::Plus => {
+                self.emit_instrs([
+                    Instr::Add(BinArgs::ToReg(Rax, Arg32::Reg(Rcx))),
+                    Instr::Jo(OVERFLOW.to_string()),
+                ]);
+            }
+            Op2::Minus => {
+                self.emit_instrs([
+                    Instr::Sub(BinArgs::ToReg(Rax, Arg32::Reg(Rcx))),
+                    Instr::Jo(OVERFLOW.to_string()),
+                ]);
+            }
+            Op2::Times => {
+                self.emit_instrs([
+                    Instr::Sar(BinArgs::ToReg(Rax, Arg32::Imm(1))),
+                    Instr::IMul(BinArgs::ToReg(Rax, Arg32::Reg(Rcx))),
+                    Instr::Jo(OVERFLOW.to_string()),
+                ]);
+            }
+            Op2::Divide => {
+                self.emit_instrs([
+                    Instr::Cqo,
+                    Instr::IDiv(Rcx),
+                    Instr::Sal(BinArgs::ToReg(Rax, Arg32::Imm(1))),
+                    Instr::Jo(OVERFLOW.to_string()),
+                ]);
+            }
+            Op2::Equal => self.compile_cmp(CMov::E),
+            Op2::Greater => self.compile_cmp(CMov::G),
+            Op2::GreaterEqual => self.compile_cmp(CMov::GE),
+            Op2::Less => self.compile_cmp(CMov::L),
+            Op2::LessEqual => self.compile_cmp(CMov::LE),
+        }
+        self.move_to(dst, Arg32::Reg(Rax));
+    }
+
+    fn compile_cmp(&mut self, cmp: impl FnOnce(Reg, Arg64) -> CMov) {
+        self.emit_instrs([
+            Instr::Cmp(BinArgs::ToReg(Rax, Arg32::Reg(Rcx))),
+            Instr::Mov(MovArgs::ToReg(Rax, false.repr64())),
+            Instr::Mov(MovArgs::ToReg(Rcx, true.repr64())),
+            Instr::CMov(cmp(Rax, Arg64::Reg(Rcx))),
+        ]);
+    }
+
+    fn move_to(&mut self, dst: Loc, src: impl Into<Arg64>) {
+        let src = src.into();
+        if dst == src {
+            return;
+        }
+        match (dst, src) {
+            (Loc::Reg(reg), _) => self.emit_instr(Instr::Mov(MovArgs::ToReg(reg, src))),
+            (Loc::Mem(dst), Arg64::Reg(src)) => {
+                self.emit_instr(Instr::Mov(MovArgs::ToMem(dst, Reg32::Reg(src))))
+            }
+            (Loc::Mem(dst), Arg64::Imm(src)) => {
+                if let Ok(src) = src.try_into() {
+                    self.emit_instr(Instr::Mov(MovArgs::ToMem(dst, Reg32::Imm(src))))
+                } else {
+                    self.emit_instrs([
+                        Instr::Mov(MovArgs::ToReg(Rdx, Arg64::Imm(src))),
+                        Instr::Mov(MovArgs::ToMem(dst, Reg32::Reg(Rdx))),
+                    ])
+                }
+            }
+            (Loc::Mem(dst), Arg64::Mem(src)) => self.emit_instrs([
+                Instr::Mov(MovArgs::ToReg(Rdx, Arg64::Mem(src))),
+                Instr::Mov(MovArgs::ToMem(dst, Reg32::Reg(Rdx))),
+            ]),
+        }
+    }
+
+    fn memset(&mut self, start: u32, count: u32, elem: Reg32) {
+        for i in start..start + count {
+            let mem = mref![Rbp - %(8 * (i + 1))];
+            self.emit_instr(Instr::Mov(MovArgs::ToMem(mem, elem)));
+        }
+    }
+
+    fn check_is_num(&mut self, reg: Reg) {
+        self.emit_instrs([
+            Instr::Test(BinArgs::ToReg(reg, Arg32::Imm(0b001))),
+            Instr::Jnz(INVALID_ARG.to_string()),
+        ]);
+    }
+
+    fn check_is_vec(&mut self, reg: Reg) {
+        self.emit_instrs([
+            Instr::Test(BinArgs::ToReg(reg, Arg32::Imm(0b001))),
+            Instr::Jz(INVALID_ARG.to_string()), // jump if is num
+            Instr::Test(BinArgs::ToReg(reg, Arg32::Imm(0b010))),
+            Instr::Jnz(INVALID_ARG.to_string()), // jump if is bool
+        ]);
+    }
+
+    fn check_is_not_nil(&mut self, reg: Reg) {
+        self.emit_instrs([
+            Instr::Cmp(BinArgs::ToReg(reg, Arg32::Imm(NIL))),
+            Instr::Jz(INVALID_ARG.to_string()), // jump if exactly equal to 1
+        ]);
+    }
+
+    fn emit_instrs(&mut self, instrs: impl IntoIterator<Item = Instr>) {
+        self.instrs.extend(instrs);
+    }
+
+    fn emit_instr(&mut self, instr: Instr) {
+        self.instrs.push(instr)
+    }
+
+    fn next_tag(&mut self) -> u32 {
+        self.tag = self.tag.checked_add(1).unwrap();
+        self.tag - 1
+    }
 }
 
-pub fn compile(p: &Program) -> String {
-    let depth = depth(&p.main);
-    let offset = align_to_16(depth + 1) * 8;
-    let prelude: String =
-        format!("our_code_starts_here:\n  push rbp\n  mov rbp, rsp\n  sub RSP, {offset}\n  mov [RBP - 8], RDI\n  mov R15, RSI\n");
-    let postlude: String = format!("  add RSP, {offset}\n  pop rbp\n  ret\n");
-    let mut env: im::HashMap<String, i64> = im::HashMap::new();
-    env = env.update("input".to_owned(), 8);
-    let mut label: i64 = 1;
-    // Pass the function definitions using a separate variable for compile_main.
-    instrs_to_string(&compile_definitions(&p.definitions, &mut label))
-        + &prelude
-        + &instrs_to_string(&compile_main(
-            &p.main,
-            2,
-            &env,
-            &mut label,
-            "",
-            &p.definitions,
-        ))
-        + &postlude
+fn frame_size(locals: u32, calle_saved: &[Reg]) -> u32 {
+    // #locals + #callee saved + return address
+    let n = locals + calle_saved.len() as u32 + 1;
+    if n % 2 == 0 {
+        locals
+    } else {
+        locals + 1
+    }
+}
+
+fn depth(e: &Expr) -> u32 {
+    match e {
+        Expr::BinOp(_, e1, e2) => depth(e1).max(depth(e2) + 1),
+        Expr::Let(bindings, e) => bindings
+            .iter()
+            .enumerate()
+            .map(|(i, (_, e))| depth(e) + (i as u32))
+            .max()
+            .unwrap_or(0)
+            .max(depth(e) + bindings.len() as u32),
+        Expr::If(e1, e2, e3) => depth(e1).max(depth(e2)).max(depth(e3)),
+        Expr::Call(_, es) | Expr::Block(es) => es.iter().map(depth).max().unwrap_or(0),
+        Expr::UnOp(_, e) | Expr::Loop(e) | Expr::Break(e) | Expr::Set(_, e) => depth(e),
+        Expr::MakeVec(size, elem) => depth(size).max(depth(elem) + 1).max(2),
+        Expr::Vec(elems) => elems
+            .iter()
+            .enumerate()
+            .map(|(i, e)| depth(e) + (i as u32))
+            .max()
+            .unwrap_or(0)
+            .max(elems.len() as u32),
+        Expr::VecSet(vec, idx, val) => depth(vec).max(depth(idx) + 1).max(depth(val) + 2).max(2),
+        Expr::VecGet(vec, idx) => depth(vec).max(depth(idx) + 1),
+        Expr::PrintStack
+        | Expr::Gc
+        | Expr::VecLen(_)
+        | Expr::Input
+        | Expr::Nil
+        | Expr::Var(_)
+        | Expr::Number(_)
+        | Expr::Boolean(_) => 0,
+    }
+}
+
+trait Repr64 {
+    fn repr64(&self) -> Arg64;
+}
+
+trait Repr32 {
+    fn repr32(&self) -> Arg32;
+}
+
+impl<T: Repr32> Repr64 for T {
+    fn repr64(&self) -> Arg64 {
+        self.repr32().into()
+    }
+}
+
+impl Repr32 for i32 {
+    fn repr32(&self) -> Arg32 {
+        Arg32::Imm(*self << 1)
+    }
+}
+
+impl Repr64 for i64 {
+    fn repr64(&self) -> Arg64 {
+        Arg64::Imm(self.checked_shl(1).unwrap())
+    }
+}
+
+impl Repr32 for bool {
+    fn repr32(&self) -> Arg32 {
+        Arg32::Imm(if *self { 7 } else { 3 })
+    }
+}
+
+fn fun_arity_map(prg: &Prog) -> Result<HashMap<Symbol, usize>, Symbol> {
+    let mut map = HashMap::new();
+    for fun in &prg.funs {
+        if map.insert(fun.name, fun.params.len()).is_some() {
+            return Err(fun.name);
+        }
+    }
+    Ok(map)
+}
+
+fn check_dup_bindings<'a>(bindings: impl IntoIterator<Item = &'a Symbol>) {
+    let mut seen = HashSet::new();
+    for name in bindings {
+        if !seen.insert(*name) {
+            raise_duplicate_binding(*name);
+        }
+    }
+}
+
+fn raise_duplicate_binding(id: Symbol) {
+    panic!("duplicate binding {id}");
+}
+
+fn raise_duplicate_function<T>(name: Symbol) -> T {
+    panic!("duplicate function name {name}")
+}
+
+fn raise_unbound_identifier<T>(id: Symbol) -> T {
+    panic!("unbound variable identifier {id}")
+}
+
+fn raise_break_outside_loop() {
+    panic!("break outside loop")
+}
+
+fn raise_input_in_fun<T>() -> T {
+    panic!("cannot use input inside function definition")
+}
+
+fn raise_undefined_fun(fun: Symbol) {
+    panic!("function {fun} not defined")
+}
+
+fn raise_wrong_number_of_args(fun: Symbol, expected: usize, got: usize) {
+    panic!("function {fun} takes {expected} arguments but {got} were supplied")
+}
+
+fn fun_label(fun: Symbol) -> String {
+    format!("snek_fun_{}", fun.replace("-", "_"))
 }

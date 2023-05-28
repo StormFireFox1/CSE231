@@ -1,9 +1,22 @@
-use std::env;
-use std::collections::HashSet;
-use std::convert::TryInto;
+use std::{collections::HashSet, env};
 
-const INT_62_BIT_MIN: i64 = -2_305_843_009_213_693_952;
-const INT_62_BIT_MAX: i64 = 2_305_843_009_213_693_951;
+type SnekVal = u64;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(i64)]
+pub enum ErrCode {
+    InvalidArgument = 1,
+    Overflow = 2,
+    IndexOutOfBounds = 3,
+    InvalidVecSize = 4,
+    OutOfMemory = 5,
+}
+
+const TRUE: u64 = 7;
+const FALSE: u64 = 3;
+
+static mut HEAP_START: *const u64 = std::ptr::null();
+static mut HEAP_END: *const u64 = std::ptr::null();
 
 #[link(name = "our_code")]
 extern "C" {
@@ -11,78 +24,145 @@ extern "C" {
     // it does not add an underscore in front of the name.
     // Courtesy of Max New (https://maxsnew.com/teaching/eecs-483-fa22/hw_adder_assignment.html)
     #[link_name = "\x01our_code_starts_here"]
-    fn our_code_starts_here(input: i64, memory: *mut i64) -> i64;
+    fn our_code_starts_here(input: u64, heap_start: *const u64, heap_end: *const u64) -> u64;
 }
 
 #[export_name = "\x01snek_error"]
-pub extern "C" fn snek_error(errcode: i64, value: i64) {
-    match errcode {
-        1 => eprintln!("invalid argument - not a boolean: {}", value),
-        2 => eprintln!("invalid argument - not a number: {}", value),
-        3 => eprintln!("invalid argument - not the same type when comparing for equality!"),
-        4 => eprintln!("overflow"),
-        5 => eprintln!("invalid argument - not a tuple: {:#x}", value),
-        6 => eprintln!("out of bounds tuple indexing error - tried to index at {}", value >> 2),
-        7 => eprintln!("tuple null pointer exception!"),
-        _ => eprintln!("unknown error"),
+pub extern "C" fn snek_error(errcode: i64) {
+    if errcode == ErrCode::InvalidArgument as i64 {
+        eprintln!("invalid argument");
+    } else if errcode == ErrCode::Overflow as i64 {
+        eprintln!("overflow");
+    } else if errcode == ErrCode::IndexOutOfBounds as i64 {
+        eprintln!("index out of bounds");
+    } else if errcode == ErrCode::InvalidVecSize as i64 {
+        eprintln!("vector size must be non-negative");
+    } else {
+        eprintln!("an error ocurred {}", errcode);
     }
-    std::process::exit(1);
+    std::process::exit(errcode as i32);
 }
-
-// Largely copied from https://github.com/ucsd-compilers-s23/lecture1/blob/b97536112db34a61c6fbd73edf39e6365e794e12/runtime/start.rs#L19C2-L37
-// Movied to adapt to our specific implementation of type tagging.
-fn snek_str(val: i64, seen : &mut HashSet<i64>) -> String {
-    if val == 7 { "true".to_string() }
-    else if val == 3 { "false".to_string() }
-    else if val & 0b11 == 0 { format!("{}", val >> 2) }
-    else if val == 1 { "nil".to_string() }
-    else if val & 0b11 == 1 {
-      if seen.contains(&val)  { return "(tuple <cyclic>)".to_string() }
-      seen.insert(val);
-      let addr = (val - 1) as *const i64;
-      let size = unsafe { *addr } >> 2;
-      let mut tuple_contents = String::from("(tuple ");
-      for i in 1..=size {
-          tuple_contents += format!("{} ", snek_str(unsafe { *addr.offset(i.try_into().expect("runtime tuple printing error")) }, seen)).as_str();
-      }
-      tuple_contents = tuple_contents.trim_end().to_owned() + ")";
-      seen.remove(&val);
-      return tuple_contents;
-    }
-    else {
-      format!("Unknown value: {}", val)
-    }
-  }
 
 #[export_name = "\x01snek_print"]
-pub extern "C" fn snek_print(value: i64) -> i64 {
-    let mut seen = HashSet::<i64>::new();
-    println!("{}", snek_str(value, &mut seen));
-    return value;
+pub unsafe extern "C" fn snek_print(val: SnekVal) -> SnekVal {
+    println!("{}", snek_str(val, &mut HashSet::new()));
+    val
 }
 
-fn parse_input(input: &str) -> i64 {
-    if input == "false" {
-        3
-    } else if input == "true" {
-        7
-    } else {
-        let i = input.parse::<i64>().unwrap_or_else(|_| { panic!("overflow"); }) << 2;
-        if i < INT_62_BIT_MIN || i > INT_62_BIT_MAX {
-            panic!("overflow")
-        }
-        i
+/// This function is called when the program needs to allocate `count` words of memory and there's no
+/// space left. The function should try to clean up space by triggering a garbage collection. If there's
+/// not enough space to hold `count` words after running the garbage collector, the program should terminate
+/// with an `out of memory` error.
+///
+/// Args:
+///     * `count`: The number of words the program is trying to allocate, including an extra word for
+///       the size of the vector and an extra word to store metadata for the garbage collector, e.g.,
+///       to allocate a vector of size 5, `count` will be 7.
+///     * `heap_ptr`: The current position of the heap pointer (i.e., the value stored in `%r15`). It
+///       is guaranteed that `heap_ptr + 8 * count > HEAP_END`, i.e., this function is only called if
+///       there's not enough space to allocate `count` words.
+///     * `stack_base`: A pointer to the "base" of the stack.
+///     * `curr_rbp`: The value of `%rbp` in the stack frame that triggered the allocation.
+///     * `curr_rsp`: The value of `%rsp` in the stack frame that triggered the allocation.
+///
+/// Returns:
+///
+/// The new heap pointer where the program should allocate the vector (i.e., the new value of `%r15`)
+///
+#[export_name = "\x01snek_try_gc"]
+pub unsafe fn snek_try_gc(
+    count: isize,
+    heap_ptr: *const u64,
+    stack_base: *const u64,
+    curr_rbp: *const u64,
+    curr_rsp: *const u64,
+) -> *const u64 {
+    eprintln!("out of memory");
+    std::process::exit(ErrCode::OutOfMemory as i32)
+}
+
+/// This function should trigger garbage collection and return the updated heap pointer (i.e., the new
+/// value of `%r15`). See [`snek_try_gc`] for a description of the meaning of the arguments.
+#[export_name = "\x01snek_gc"]
+pub unsafe fn snek_gc(
+    heap_ptr: *const u64,
+    stack_base: *const u64,
+    curr_rbp: *const u64,
+    curr_rsp: *const u64,
+) -> *const u64 {
+    heap_ptr
+}
+
+/// A helper function that can called with the `(snek-printstack)` snek function. It prints the stack
+/// See [`snek_try_gc`] for a description of the meaning of the arguments.
+#[export_name = "\x01snek_print_stack"]
+pub unsafe fn snek_print_stack(stack_base: *const u64, curr_rbp: *const u64, curr_rsp: *const u64) {
+    let mut ptr = stack_base;
+    println!("-----------------------------------------");
+    while ptr >= curr_rsp {
+        let val = *ptr;
+        println!("{ptr:?}: {:#0x}", val);
+        ptr = ptr.sub(1);
     }
+    println!("-----------------------------------------");
+}
+
+unsafe fn snek_str(val: SnekVal, seen: &mut HashSet<SnekVal>) -> String {
+    if val == TRUE {
+        format!("true")
+    } else if val == FALSE {
+        format!("false")
+    } else if val & 1 == 0 {
+        format!("{}", (val as i64) >> 1)
+    } else if val == 1 {
+        format!("nil")
+    } else if val & 1 == 1 {
+        if !seen.insert(val) {
+            return "[...]".to_string();
+        }
+        let addr = (val - 1) as *const u64;
+        let size = addr.add(1).read() as usize;
+        let mut res = "[".to_string();
+        for i in 0..size {
+            let elem = addr.add(2 + i).read();
+            res = res + &snek_str(elem, seen);
+            if i < size - 1 {
+                res = res + ", ";
+            }
+        }
+        seen.remove(&val);
+        res + "]"
+    } else {
+        format!("unknown value: {val}")
+    }
+}
+
+fn parse_input(input: &str) -> u64 {
+    match input {
+        "true" => TRUE,
+        "false" => FALSE,
+        _ => (input.parse::<i64>().unwrap() << 1) as u64,
+    }
+}
+
+fn parse_heap_size(input: &str) -> usize {
+    input.parse::<usize>().unwrap()
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let input = if args.len() == 2 { &args[1] } else { "false" };
+    let input = if args.len() >= 2 { &args[1] } else { "false" };
+    let heap_size = if args.len() >= 3 { &args[2] } else { "10000" };
     let input = parse_input(&input);
-    let mut memory = Vec::<i64>::with_capacity(1000000);
-    let buffer :*mut i64 = memory.as_mut_ptr();
-    
-    let i : i64 = unsafe { our_code_starts_here(input, buffer) };
-    let mut seen = HashSet::<i64>::new();
-    println!("{}", snek_str(i, &mut seen));
+    let heap_size = parse_heap_size(&heap_size);
+
+    // Initialize heap
+    let mut heap: Vec<u64> = Vec::with_capacity(heap_size);
+    unsafe {
+        HEAP_START = heap.as_mut_ptr();
+        HEAP_END = HEAP_START.add(heap_size);
+    }
+
+    let i: u64 = unsafe { our_code_starts_here(input, HEAP_START, HEAP_END) };
+    unsafe { snek_print(i) };
 }
