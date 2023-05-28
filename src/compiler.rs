@@ -121,6 +121,7 @@ extern snek_error
 extern snek_print
 extern snek_alloc_vec
 extern snek_print_stack
+extern snek_print_heap
 extern snek_try_gc
 extern snek_gc
 global our_code_starts_here
@@ -470,7 +471,14 @@ impl Session {
                     Instr::Call("snek_print_stack".to_string()),
                 ]);
                 self.move_to(dst, 0.repr32());
-            }
+            },
+            Expr::PrintHeap => {
+                self.emit_instrs([
+                    Instr::Mov(MovArgs::ToReg(Rdi, Arg64::Reg(R15))),
+                    Instr::Call("snek_print_heap".to_string()),
+                ]);
+                self.move_to(dst, 0.repr32());
+            },
         }
     }
 
@@ -719,6 +727,7 @@ fn depth(e: &Expr) -> u32 {
         Expr::VecSet(vec, idx, val) => depth(vec).max(depth(idx) + 1).max(depth(val) + 2).max(2),
         Expr::VecGet(vec, idx) => depth(vec).max(depth(idx) + 1),
         Expr::PrintStack
+        | Expr::PrintHeap
         | Expr::Gc
         | Expr::VecLen(_)
         | Expr::Input

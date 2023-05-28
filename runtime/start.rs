@@ -1,4 +1,4 @@
-use std::{collections::HashSet, env};
+use std::{collections::HashSet, env, convert::TryInto};
 
 type SnekVal = u64;
 
@@ -77,8 +77,37 @@ pub unsafe fn snek_try_gc(
     curr_rbp: *const u64,
     curr_rsp: *const u64,
 ) -> *const u64 {
-    eprintln!("out of memory");
-    std::process::exit(ErrCode::OutOfMemory as i32)
+    // Call snek_gc to garbage collect.
+    // If it so happens that there's not enough space to allocate `count` words, terminate with an
+    // `out of memory` error.
+    // Otherwise, just return the new heap pointer.
+    let new_heap_ptr = snek_gc(heap_ptr, stack_base, curr_rbp, curr_rsp);
+    // if HEAP_END.sub(new_heap_ptr) < 8 * count as u64 {
+    //     eprintln!("out of memory");
+    //     std::process::exit(ErrCode::OutOfMemory as i32)
+    // } else {
+    //     new_heap_ptr
+    // }
+    new_heap_ptr
+}
+
+/// Marks the current vectors as live and recurses for any of its potential sub-values that
+/// happen to also be vecs and live.
+pub unsafe fn mark_vec(vec: *mut u64) {
+    let mut gc_word = *vec;
+    let size_word = *(vec.add(1));
+    // If marked already, just skip.
+    if gc_word & 1 == 1 { return; }
+    gc_word = 1;
+    *vec = gc_word;
+
+    // For every child, mark as live if a vec and not nil.
+    for i in 2..(2 + size_word) {
+        let val = *(vec.add(i.try_into().expect("Unable to cast size offset to usize")));
+        if val & 1 == 1 && val != 1 {
+            mark_vec(((val as u64) - 1) as *mut u64);
+        }
+    }
 }
 
 /// This function should trigger garbage collection and return the updated heap pointer (i.e., the new
@@ -90,6 +119,25 @@ pub unsafe fn snek_gc(
     curr_rbp: *const u64,
     curr_rsp: *const u64,
 ) -> *const u64 {
+    // First off, we need to mark.
+    // Traverse the entire stack, and for every value that is a tuple and is still live,
+    // mark it in the heap with 1. We also have to recurse to make sure any other tuple value
+    // is also marked.
+    let mut roots: Vec<*mut u64> = Vec::new();
+    let mut ptr = stack_base;
+    while ptr >= curr_rsp {
+        let val = *ptr;
+        // If vec and not nil, remove tag and pass as root.
+        if val & 1 == 1 && val != 1 {
+            roots.push(((val as u64) - 1) as *mut u64);
+        }
+        ptr = ptr.sub(1);
+    }
+
+    // Mark all roots recursively.
+    for root in roots {
+        mark_vec(root);
+    }
     heap_ptr
 }
 
@@ -98,13 +146,28 @@ pub unsafe fn snek_gc(
 #[export_name = "\x01snek_print_stack"]
 pub unsafe fn snek_print_stack(stack_base: *const u64, curr_rbp: *const u64, curr_rsp: *const u64) {
     let mut ptr = stack_base;
-    println!("-----------------------------------------");
+    println!("-------------STACK START-------------");
     while ptr >= curr_rsp {
         let val = *ptr;
         println!("{ptr:?}: {:#0x}", val);
         ptr = ptr.sub(1);
     }
-    println!("-----------------------------------------");
+    println!("--------------STACK END--------------");
+}
+
+/// A helper function that can called with the `(snek-printheap)` snek function. It prints the stack
+/// See [`snek_try_gc`] for a description of the meaning of the arguments.
+#[export_name = "\x01snek_print_heap"]
+pub unsafe fn snek_print_heap(heap_ptr: *const u64) {
+    let mut ptr = HEAP_START;
+    println!("--------------HEAP START----------------");
+    while ptr <= heap_ptr {
+        let val = *ptr;
+        println!("{ptr:?}: {:#0x}", val);
+        ptr = ptr.add(1);
+    }
+    println!("--------------EMPTY FOR {} WORDS----------------", HEAP_END as u64 - heap_ptr as u64);
+    println!("--------------------HEAP END--------------------");
 }
 
 unsafe fn snek_str(val: SnekVal, seen: &mut HashSet<SnekVal>) -> String {
