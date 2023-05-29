@@ -128,6 +128,31 @@ pub unsafe fn mark_stack(stack_base: *const u64, curr_rsp: *const u64, curr_rbp:
     }
 }
 
+/// Updates all references to vecs in the current stack frame to point to the new heap
+/// location after forwarding calculation. Also recursively iterates through all stack frames
+/// beneath this one to do the same.
+pub unsafe fn update_stack_references(stack_base: *const u64, curr_rsp: *const u64, curr_rbp: *const u64) {
+    let mut ptr: *mut u64 = curr_rsp as *mut u64;
+    while (ptr as *const u64) < curr_rbp {
+        let val = *ptr;
+        // Check if value is not true, false or nil and then check tag bit.
+        // If it's a reference, update to new reference from GC word (if any),
+        // with tag bit set.
+        if val & 1 == 1 && val != 1 && val != TRUE && val != FALSE {
+            let gc_word = *((val - 1) as *const u64);
+            if gc_word != 0 {
+                *ptr = gc_word + 1;
+            }
+        }
+        ptr = ptr.add(1);
+    }
+    if (ptr as *const u64) == stack_base {
+        return;
+    } else {
+        update_stack_references(stack_base, ptr, *curr_rbp as *const u64);
+    }
+}
+
 /// This function should trigger garbage collection and return the updated heap pointer (i.e., the new
 /// value of `%r15`). See [`snek_try_gc`] for a description of the meaning of the arguments.
 #[export_name = "\x01snek_gc"]
@@ -155,26 +180,74 @@ pub unsafe fn snek_gc(
     let mut move_to = HEAP_START;
     let mut move_from: *mut u64 = HEAP_START as *mut u64;
     while (move_from as *const u64) < heap_ptr {
-        println!("Checking if {} needs fowarding...", snek_str(move_from as u64 + 1, &mut HashSet::new()));
-        let mut gc_word = *move_from;
-        let mut size_word = *(move_from.add(1));
+        // Check GC word for mark. If we find one, use the current
+        // move_to and replace the GC word with the new address.
+        // Adjust move_to and move_from according to the size
+        // of the vec.
+        let gc_word = *move_from;
+        let size_word = *(move_from.add(1));
         if gc_word & 1 == 1 {
-            println!("Yes! Forwarding to {:#0x}...", move_to as u64);
             *move_from = move_to as u64;
             move_to = move_to.add((size_word + 2).try_into().expect("Unable to increment move_to when computing forwarding address"));
         }
-        println!("Moving up {} words...", size_word + 2);
         move_from = move_from.add((size_word + 2).try_into().expect("Unable to increment move_from when computing forwarding address"));
     }
 
-    
-    heap_ptr
+    // Now that we've calculated the forwarding addresses, we need to update
+    // the address everywhere we find it in the heap and the stack. We'll do
+    // the heap first, since it's easier.
+    //
+    // Iterate linearly throughout entire heap and whenever we find a reference
+    // for an address, check whether that specific address has anything other than
+    // zero in its GC word. If so, replace the current value we are looking at with
+    // the one in the GC word.
+    let mut ptr: *mut u64 = HEAP_START as *mut u64;
+    while (ptr as *const u64) < heap_ptr {
+        let val = *ptr;
+        // Check if value is not true, false or nil and then check tag bit.
+        // If it's a reference, update to new reference from GC word (if any),
+        // with tag bit set.
+        if val & 1 == 1 && val != 1 && val != TRUE && val != FALSE {
+            let gc_word = *((val - 1) as *const u64);
+            if gc_word != 0 {
+                *ptr = gc_word + 1;
+            }
+        }
+        ptr = ptr.add(1);
+    }
+
+    // Now we need to do the same thing over the stack. Use the stack traversal
+    // we used for marking, except process values just like above.
+    update_stack_references(stack_base, curr_rsp, curr_rbp);
+
+    let mut new_heap_ptr: *mut u64 = HEAP_START as *mut u64;
+    // Now all that's left is to move the objects in the heap. Linearly iterate
+    // the tuples in the heap and, for every GC word that is not 0, forward the vec
+    // to its proper address, mark that spot with 0 and then adjust the new heap pointer
+    // to include that vec.
+    let mut ptr: *mut u64 = HEAP_START as *mut u64;
+    while (ptr as *const u64) < heap_ptr {
+        let gc_word = *ptr;
+        let size_word = *(ptr.add(1));
+        // If there is an address to forward to, move our entire tuple
+        // to that address.
+        if gc_word != 0 {
+            *new_heap_ptr = 0;
+            *(new_heap_ptr.add(1)) = size_word;
+            for i in 2..(size_word + 2) {
+                *new_heap_ptr.add(i as usize) = *ptr.add(i as usize);
+            }
+            new_heap_ptr = new_heap_ptr.add((size_word + 2).try_into().expect("Unable to increment new_heap_ptr when moving objects"));
+        }
+        ptr = ptr.add((size_word + 2).try_into().expect("Unable to increment linear scan pointer when moving objects"));
+    }
+    new_heap_ptr
 }
 
 /// A helper function that can called with the `(snek-printstack)` snek function. It prints the stack
 /// See [`snek_try_gc`] for a description of the meaning of the arguments.
 #[export_name = "\x01snek_print_stack"]
-pub unsafe fn snek_print_stack(stack_base: *const u64, curr_rbp: *const u64, curr_rsp: *const u64) {
+pub unsafe fn snek_print_stack(stack_base: *const u64, _curr_rbp: *const u64, curr_rsp: *const u64) {
     let mut ptr = stack_base;
     println!("-------------STACK START-------------");
     while ptr >= curr_rsp {
