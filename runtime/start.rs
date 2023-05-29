@@ -148,6 +148,26 @@ pub unsafe fn snek_gc(
     for root in roots {
         mark_vec(root);
     }
+
+    // Now all the values are marked, we need to begin compacting.
+    // We start with computing all the forwarding addresses.
+    // To do this, we iterate through our heap, by iterating through our vecs.
+    let mut move_to = HEAP_START;
+    let mut move_from: *mut u64 = HEAP_START as *mut u64;
+    while (move_from as *const u64) < heap_ptr {
+        println!("Checking if {} needs fowarding...", snek_str(move_from as u64 + 1, &mut HashSet::new()));
+        let mut gc_word = *move_from;
+        let mut size_word = *(move_from.add(1));
+        if gc_word & 1 == 1 {
+            println!("Yes! Forwarding to {:#0x}...", move_to as u64);
+            *move_from = move_to as u64;
+            move_to = move_to.add((size_word + 2).try_into().expect("Unable to increment move_to when computing forwarding address"));
+        }
+        println!("Moving up {} words...", size_word + 2);
+        move_from = move_from.add((size_word + 2).try_into().expect("Unable to increment move_from when computing forwarding address"));
+    }
+
+    
     heap_ptr
 }
 
