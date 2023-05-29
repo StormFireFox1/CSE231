@@ -124,7 +124,7 @@ pub unsafe fn find_stack_marks(stack_base: *const u64, curr_rsp: *const u64, cur
     if ptr == stack_base {
         return;
     } else {
-        find_stack_marks(stack_base, ptr, *curr_rbp as *const u64, roots);
+        find_stack_marks(stack_base, ptr.add(2), *curr_rbp as *const u64, roots);
     }
 }
 
@@ -149,7 +149,7 @@ pub unsafe fn update_stack_references(stack_base: *const u64, curr_rsp: *const u
     if (ptr as *const u64) == stack_base {
         return;
     } else {
-        update_stack_references(stack_base, ptr, *curr_rbp as *const u64);
+        update_stack_references(stack_base, ptr.add(2), *curr_rbp as *const u64);
     }
 }
 
