@@ -58,6 +58,9 @@ impl Parser {
                     Expr::PrintStack
                 }
                 [Sexp::Atom(S(keyword)), es @ ..] if keyword == "snek-printheap" => {
+                    if !es.is_empty() {
+                        return syntax_error("snek-prinstack doesn't take any arguments");
+                    }
                     Expr::PrintHeap
                 }
                 // (gc)

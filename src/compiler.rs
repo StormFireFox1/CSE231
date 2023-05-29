@@ -471,14 +471,14 @@ impl Session {
                     Instr::Call("snek_print_stack".to_string()),
                 ]);
                 self.move_to(dst, 0.repr32());
-            },
+            }
             Expr::PrintHeap => {
                 self.emit_instrs([
                     Instr::Mov(MovArgs::ToReg(Rdi, Arg64::Reg(R15))),
                     Instr::Call("snek_print_heap".to_string()),
                 ]);
                 self.move_to(dst, 0.repr32());
-            },
+            }
         }
     }
 
