@@ -103,20 +103,20 @@ pub unsafe fn mark_vec(vec: *mut u64) {
     // For every child, mark as live if a vec and not nil.
     for i in 2..(2 + size_word) {
         let val = *(vec.add(i.try_into().expect("Unable to cast size offset to usize")));
-        if val & 1 == 1 && val != 1 {
+        if val & 1 == 1 && val != 1 && val != TRUE && val != FALSE {
             mark_vec(((val as u64) - 1) as *mut u64);
         }
     }
 }
 
-/// Goes through the current stack frame and marks all of its vectors as live.
+/// Goes through the current stack frame and finds all used vecs, adding them to the "roots" vector.
 /// Also recursively iterates through each stack frame to do the same.
-pub unsafe fn mark_stack(stack_base: *const u64, curr_rsp: *const u64, curr_rbp: *const u64, roots: &mut Vec<*mut u64>) {
+pub unsafe fn find_stack_marks(stack_base: *const u64, curr_rsp: *const u64, curr_rbp: *const u64, roots: &mut Vec<*mut u64>) {
     let mut ptr = curr_rsp;
     while ptr < curr_rbp {
         let val = *ptr;
-        // If vec and not nil, remove tag and pass as root.
-        if val & 1 == 1 && val != 1 {
+        // If vec and not nil, true or false, remove tag and pass as root.
+        if val & 1 == 1 && val != 1 && val != TRUE && val != FALSE {
             roots.push(((val as u64) - 1) as *mut u64);
         }
         ptr = ptr.add(1);
@@ -124,7 +124,7 @@ pub unsafe fn mark_stack(stack_base: *const u64, curr_rsp: *const u64, curr_rbp:
     if ptr == stack_base {
         return;
     } else {
-        mark_stack(stack_base, ptr, *curr_rbp as *const u64, roots);
+        find_stack_marks(stack_base, ptr, *curr_rbp as *const u64, roots);
     }
 }
 
@@ -167,7 +167,7 @@ pub unsafe fn snek_gc(
     // mark it in the heap with 1. We also have to recurse to make sure any other tuple value
     // is also marked.
     let mut roots: Vec<*mut u64> = Vec::new();
-    mark_stack(stack_base, curr_rsp, curr_rbp, &mut roots);
+    find_stack_marks(stack_base, curr_rsp, curr_rbp, &mut roots);
 
     // Mark all roots recursively.
     for root in roots {
@@ -269,7 +269,7 @@ pub unsafe fn snek_print_heap(heap_ptr: *const u64) {
         println!("{ptr:?}: {:#0x}", val);
         ptr = ptr.add(1);
     }
-    println!("[EMPTY FOR {} WORDS]", HEAP_END as u64 - heap_ptr as u64);
+    println!("[EMPTY FOR {} WORDS]", (HEAP_END as u64 - heap_ptr as u64) / 8);
     println!("--------------------HEAP END--------------------");
 }
 

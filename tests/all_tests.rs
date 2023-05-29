@@ -24,6 +24,12 @@ success_tests! {
         file: "linked_list_manipulations.snek",
         expected: "1\n2\n3\n4\n5\n5\n4\n3\n2\n1\nnil"
     },
+    {
+        name: gc_example,
+        file: "gc_example.snek",
+        heap_size: 15,
+        expected: "[1, 2, 3]",
+    }
 }
 
 runtime_error_tests! {
@@ -32,6 +38,13 @@ runtime_error_tests! {
         file: "make_vec.snek",
         input: "5",
         heap_size: 5,
+        expected: "out of memory",
+    },
+    {
+        name: gc_oom_from_try,
+        file: "gc_example.snek",
+        input: "10",
+        heap_size: 10,
         expected: "out of memory",
     },
     {
