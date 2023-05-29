@@ -109,6 +109,25 @@ pub unsafe fn mark_vec(vec: *mut u64) {
     }
 }
 
+/// Goes through the current stack frame and marks all of its vectors as live.
+/// Also recursively iterates through each stack frame to do the same.
+pub unsafe fn mark_stack(stack_base: *const u64, curr_rsp: *const u64, curr_rbp: *const u64, roots: &mut Vec<*mut u64>) {
+    let mut ptr = curr_rsp;
+    while ptr < curr_rbp {
+        let val = *ptr;
+        // If vec and not nil, remove tag and pass as root.
+        if val & 1 == 1 && val != 1 {
+            roots.push(((val as u64) - 1) as *mut u64);
+        }
+        ptr = ptr.add(1);
+    }
+    if ptr == stack_base {
+        return;
+    } else {
+        mark_stack(stack_base, ptr, *curr_rbp as *const u64, roots);
+    }
+}
+
 /// This function should trigger garbage collection and return the updated heap pointer (i.e., the new
 /// value of `%r15`). See [`snek_try_gc`] for a description of the meaning of the arguments.
 #[export_name = "\x01snek_gc"]
@@ -123,15 +142,7 @@ pub unsafe fn snek_gc(
     // mark it in the heap with 1. We also have to recurse to make sure any other tuple value
     // is also marked.
     let mut roots: Vec<*mut u64> = Vec::new();
-    let mut ptr = stack_base;
-    while ptr >= curr_rsp {
-        let val = *ptr;
-        // If vec and not nil, remove tag and pass as root.
-        if val & 1 == 1 && val != 1 {
-            roots.push(((val as u64) - 1) as *mut u64);
-        }
-        ptr = ptr.sub(1);
-    }
+    mark_stack(stack_base, curr_rsp, curr_rbp, &mut roots);
 
     // Mark all roots recursively.
     for root in roots {
@@ -160,12 +171,12 @@ pub unsafe fn snek_print_stack(stack_base: *const u64, curr_rbp: *const u64, cur
 pub unsafe fn snek_print_heap(heap_ptr: *const u64) {
     let mut ptr = HEAP_START;
     println!("--------------HEAP START----------------");
-    while ptr <= heap_ptr {
+    while ptr < heap_ptr {
         let val = *ptr;
         println!("{ptr:?}: {:#0x}", val);
         ptr = ptr.add(1);
     }
-    println!("--------------EMPTY FOR {} WORDS----------------", HEAP_END as u64 - heap_ptr as u64);
+    println!("[EMPTY FOR {} WORDS]", HEAP_END as u64 - heap_ptr as u64);
     println!("--------------------HEAP END--------------------");
 }
 
