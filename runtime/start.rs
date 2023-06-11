@@ -52,7 +52,12 @@ fn snek_str(val: i64, seen : &mut HashSet<i64>) -> String {
     else {
       format!("Unknown value: {}", val)
     }
-  }
+}
+
+#[export_name = "\x01snek_tuple_equal"]
+pub extern "C" fn snek_tuple_equal(tuple_1: i64, tuple_2: i64) -> i64 {
+    return 7;
+}
 
 #[export_name = "\x01snek_print"]
 pub extern "C" fn snek_print(value: i64) -> i64 {

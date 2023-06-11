@@ -246,6 +246,11 @@ runtime_error_tests! {
         name: error_bounds,
         file: "error-bounds.snek",
         expected: "out of bounds",
+    },
+    {
+        name: tuple_equal_invalid_arg,
+        file: "tuple_equal_on_num.snek",
+        expected: "invalid argument",
     }
 }
 

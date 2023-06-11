@@ -133,6 +133,7 @@ fn main() -> std::io::Result<()> {
 section .text
 extern snek_error
 extern snek_print
+extern snek_tuple_equal
 global our_code_starts_here
 {}
 not_bool_err:

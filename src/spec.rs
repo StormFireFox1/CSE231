@@ -78,6 +78,7 @@ pub enum Op2 {
     Minus,
     Times,
     Equal,
+    TupleEqual,
     Greater,
     GreaterOrEqual,
     Less,

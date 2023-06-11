@@ -5,8 +5,8 @@ use crate::spec::*;
 
 const INT_62_BIT_MIN: i64 = -2_305_843_009_213_693_952;
 const INT_62_BIT_MAX: i64 = 2_305_843_009_213_693_951;
-const KEYWORDS: [&str; 26] = [
-    "add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "true", "false", "input",
+const KEYWORDS: [&str; 27] = [
+    "add1", "sub1", "let", "+", "-", "*", "<", ">", ">=", "<=", "=", "==", "true", "false", "input",
     "isnum", "isbool", "loop", "break", "set!", "if", "fun", "print", "index", "tuple", "update!", "nil"
 ];
 
@@ -175,6 +175,11 @@ pub fn parse_expr(s: &Sexp) -> Expr {
             ),
             [Sexp::Atom(S(op)), e1, e2] if op == "=" => Expr::BinOp(
                 Op2::Equal,
+                Box::new(parse_expr(e1)),
+                Box::new(parse_expr(e2)),
+            ),
+            [Sexp::Atom(S(op)), e1, e2] if op == "==" => Expr::BinOp(
+                Op2::TupleEqual,
                 Box::new(parse_expr(e1)),
                 Box::new(parse_expr(e2)),
             ),
@@ -458,6 +463,23 @@ pub fn compile_main(
                         Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(3)),
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Imm(7)),
                         Instr::ICMovE(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)),
+                    ])
+                },
+                Op2::TupleEqual => {
+                    // Check if both arguments are tuples. If not, throw the "Invalid argument error".
+                    result.append(&mut vec![
+                        Instr::IMov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
+                        Instr::IMov(Val::Reg(Reg::RCX), Val::RegOffset(Reg::RBP, si * 8)),
+                        Instr::IAnd(Val::Reg(Reg::RBX), Val::Imm(3)),
+                        Instr::ICmp(Val::Reg(Reg::RBX), Val::Imm(1)),
+                        Instr::IJne(Val::Label("invalid_arg_err".to_string())),
+                        Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(3)),
+                        Instr::ICmp(Val::Reg(Reg::RCX), Val::Imm(1)),
+                        Instr::IJne(Val::Label("invalid_arg_err".to_string())),
+                        // Pass the two tuples over to the Rust runtime to evaluate equality.
+                        Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)),
+                        Instr::IMov(Val::Reg(Reg::RSI), Val::RegOffset(Reg::RBP, si * 8)),
+                        Instr::ICall(Val::Label("snek_tuple_equal".to_string())),
                     ])
                 },
                 Op2::Index => {
