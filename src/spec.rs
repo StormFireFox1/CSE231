@@ -114,7 +114,7 @@ pub enum Expr {
     Set(String, Box<Expr>),
     Block(Vec<Expr>),
     Tuple(Vec<Expr>),
-    Update(String, Box<Expr>, Box<Expr>),
+    Update(Box<Expr>, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
 }
 

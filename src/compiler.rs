@@ -195,12 +195,8 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                     Expr::Set(id.to_string(), Box::new(parse_expr(e)))
                 }
             }
-            [Sexp::Atom(S(op)), Sexp::Atom(S(id)), e1, e2] if op == "update!" => {
-                if KEYWORDS.contains(&id.as_str()) {
-                    panic!("Invalid expression provided")
-                } else {
-                    Expr::Update(id.to_string(), Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
-                }
+            [Sexp::Atom(S(op)), e1, e2, e3] if op == "update!" => {
+                Expr::Update(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)), Box::new(parse_expr(e3)))
             }
             [Sexp::Atom(S(op)), e1, e2, e3] if op == "if" => Expr::If(
                 Box::new(parse_expr(e1)),
@@ -296,7 +292,7 @@ fn depth(e: &Expr) -> i64 {
         Expr::Block(exprs) => exprs.iter().map(depth).max().unwrap_or(0),
         Expr::Break(expr) => depth(expr),
         Expr::Set(_, expr) => depth(expr),
-        Expr::Update(_, expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
+        Expr::Update(expr1, expr2, expr3) => depth(expr1).max(depth(expr2) + 1).max(depth(expr3) + 2),
         Expr::Call(_, es) => es.iter().map(depth).max().unwrap_or(0),
         Expr::Tuple(es) => es.iter().enumerate().map(|x| depth(&x.1) + x.0 as i64).max().unwrap_or(0)
     }
@@ -643,25 +639,32 @@ pub fn compile_main(
                 Val::Reg(Reg::RAX),
             ));
         }
-        Expr::Update(id, index, value) => {
-            let mut index_instrs = compile_main(index, si, env, l, target, defs);
-            let mut value_instrs = compile_main(value, si + 1, env, l, target, defs);
-            result.append(&mut index_instrs);
+        Expr::Update(tuple, index, value) => {
+            let mut tuple_instrs = compile_main(tuple, si, env, l, target, defs);
+            let mut index_instrs = compile_main(index, si + 1, env, l, target, defs);
+            let mut value_instrs = compile_main(value, si + 2, env, l, target, defs);
+            result.append(&mut tuple_instrs);
             result.push(Instr::IMov(
                 Val::RegOffset(Reg::RBP, si * 8),
                 Val::Reg(Reg::RAX),
             ));
+            result.append(&mut index_instrs);
+            result.push(Instr::IMov(
+                Val::RegOffset(Reg::RBP, (si + 1) * 8),
+                Val::Reg(Reg::RAX),
+            ));
             result.append(&mut value_instrs);
-            let tuple = Val::RegOffset(Reg::RBP, *env.get(id).unwrap_or_else(|| panic!("Unbound variable identifier {id}")));
+            let tuple = Val::RegOffset(Reg::RBP, si * 8);
+            let index = Val::RegOffset(Reg::RBP, (si + 1) * 8);
             result.append(&mut assert_type(tuple.clone(), Type::Tuple));
-            result.append(&mut assert_type(Val::RegOffset(Reg::RBP, si * 8), Type::Number));
+            result.append(&mut assert_type(index.clone(), Type::Number));
             result.push(Instr::IMov(Val::Reg(Reg::RCX), Val::Reg(Reg::RAX)));
             result.append(&mut vec![
                 // Check to see if the index is out of bounds. Has to be bigger than 0,
                 // but less than the size of the tuple.
                 // First compare to 0 and if it is lower, throw an out of bounds error.
                 Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(0)),
-                Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
+                Instr::ICmp(index.clone(), Val::Reg(Reg::RAX)),
                 Instr::IJl(Val::Label("out_of_bounds_err".to_string())),
                 // Afterwards, compare the index to the size of the tuple from memory.
                 // If it is greater than or equal to the size, throw an out of bounds error.
@@ -671,9 +674,9 @@ pub fn compile_main(
                 Instr::IJe(Val::Label("null_ptr_err".to_string())),
                 Instr::ISub(Val::Reg(Reg::RBX), Val::Imm(1)),
                 Instr::IMov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBX, 0)),
-                Instr::ICmp(Val::RegOffset(Reg::RBP, si * 8), Val::Reg(Reg::RAX)),
+                Instr::ICmp(index.clone(), Val::Reg(Reg::RAX)),
                 Instr::IJge(Val::Label("out_of_bounds_err".to_string())),
-                Instr::IMov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBP, si * 8)),
+                Instr::IMov(Val::Reg(Reg::RAX), index),
                 Instr::ISar(Val::Reg(Reg::RAX), Val::Imm(2)),
                 Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1)),
                 Instr::IMul(Val::Reg(Reg::RAX), Val::Imm(8)),
