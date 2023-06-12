@@ -1,0 +1,16 @@
+(let
+((x (tuple 1 true 2))
+(y (tuple 1 true 2))
+(z (tuple 3 false (tuple true 6 7)))
+(t (tuple 3 false (tuple true 6 7)))
+(v x))
+(block
+    (print (= x x))
+    (print (== x x))
+    (print (= x y))
+    (print (== x y))
+    (print (= z t))
+    (print (== z t))
+    (print (= x v))
+    (== (tuple 1 2 3 4) (tuple 1 2 3))
+))

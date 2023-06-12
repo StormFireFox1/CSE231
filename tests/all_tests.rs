@@ -178,8 +178,8 @@ success_tests! {
     },
     {
         name: tuple_equal,
-        file: "tuple_equal.snek",
-        expected: "true\ntrue\nfalse\ntrue\nfalse\ntrue"
+        file: "equal.snek",
+        expected: "true\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse"
     },
     {
         name: cyclic_structural_equality_1,
