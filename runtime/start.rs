@@ -75,6 +75,8 @@ fn snek_compare_tuples(tuple_1: i64, tuple_2: i64, traversed_values: &mut HashSe
     for index in 1..=len_1 {
         let val_1 = unsafe { *addr_1.offset(index.try_into().expect("runtime tuple structural equality error")) };
         let val_2 = unsafe { *addr_2.offset(index.try_into().expect("runtime tuple structural equality error")) };
+        tuple_vec_1.push(val_1);
+        tuple_vec_2.push(val_2);
         // Let's get the simple cases out.
         // If the type tags differ, they're different.
         if val_1 & 0b11 != val_2 & 0b11 {
@@ -87,14 +89,10 @@ fn snek_compare_tuples(tuple_1: i64, tuple_2: i64, traversed_values: &mut HashSe
                 return FALSE
             }
         }
-
-        // At this point, the only possible situation is that both elements are tuples. Add them to the pairs
-        // of tuples to check.
-        pairs_of_tuples_to_check.push((val_1, val_2));
-
-        // Regardless, add each value to the vectors we're storing.
-        tuple_vec_1.push(val_1);
-        tuple_vec_2.push(val_2);
+        // Check if both are tuples. If they are, add them to the list of pairs to check.
+        if val_1 & 0b11 == 1 {
+            pairs_of_tuples_to_check.push((val_1, val_2));
+        }
     }
     // At this point, the tuples seem equal. We'll want to check if we've done this comparison before.
     // If we have, then that must mean we're reached a cyclic position in our structure and thus can easily

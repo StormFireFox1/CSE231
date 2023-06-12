@@ -175,6 +175,11 @@ success_tests! {
         name: bst,
         file: "bst.snek",
         expected: "(tuple 5 (tuple 2 nil nil) nil)\n(tuple 5 (tuple 2 nil nil) (tuple 6 nil nil))\ntrue\nfalse\n(tuple 5 (tuple 2 (tuple 1 nil nil) nil) (tuple 6 nil nil))\ntrue",
+    },
+    {
+        name: tuple_equal,
+        file: "tuple_equal.snek",
+        expected: "true\ntrue\nfalse\ntrue\nfalse\ntrue"
     }
 }
 

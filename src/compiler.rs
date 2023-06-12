@@ -466,8 +466,11 @@ pub fn compile_main(
                     ])
                 },
                 Op2::TupleEqual => {
-                    // Check if both arguments are tuples. If not, throw the "Invalid argument error".
                     result.append(&mut vec![
+                        // Pass the two tuples over to the Rust runtime to evaluate equality.
+                        Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)),
+                        Instr::IMov(Val::Reg(Reg::RSI), Val::RegOffset(Reg::RBP, si * 8)),
+                        // Before that, check if both arguments are tuples. If not, throw the "Invalid argument error".
                         Instr::IMov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
                         Instr::IMov(Val::Reg(Reg::RCX), Val::RegOffset(Reg::RBP, si * 8)),
                         Instr::IAnd(Val::Reg(Reg::RBX), Val::Imm(3)),
@@ -476,9 +479,6 @@ pub fn compile_main(
                         Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(3)),
                         Instr::ICmp(Val::Reg(Reg::RCX), Val::Imm(1)),
                         Instr::IJne(Val::Label("invalid_arg_err".to_string())),
-                        // Pass the two tuples over to the Rust runtime to evaluate equality.
-                        Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)),
-                        Instr::IMov(Val::Reg(Reg::RSI), Val::RegOffset(Reg::RBP, si * 8)),
                         Instr::ICall(Val::Label("snek_tuple_equal".to_string())),
                     ])
                 },
