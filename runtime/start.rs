@@ -4,6 +4,8 @@ use std::convert::TryInto;
 
 const INT_62_BIT_MIN: i64 = -2_305_843_009_213_693_952;
 const INT_62_BIT_MAX: i64 = 2_305_843_009_213_693_951;
+const TRUE: i64 = 7;
+const FALSE: i64 = 3;
 
 #[link(name = "our_code")]
 extern "C" {
@@ -54,9 +56,70 @@ fn snek_str(val: i64, seen : &mut HashSet<i64>) -> String {
     }
 }
 
+fn snek_compare_tuples(tuple_1: i64, tuple_2: i64, traversed_values: &mut HashSet<(Vec<i64>, Vec<i64>)>) -> i64 {
+    // We are guaranteed the provided values are tuples here, so we need to just check for equality
+    // on tuples, not anything else.
+    // First, check if length is equal. If that's not equal, then nothing is.
+    let addr_1 = (tuple_1 - 1) as *const i64;
+    let addr_2 = (tuple_2 - 1) as *const i64;
+    let len_1 = unsafe { *addr_1 } >> 2;
+    let len_2 = unsafe { *addr_2 } >> 2;
+    if len_1 != len_2 {
+        return FALSE
+    }
+
+    let mut tuple_vec_1: Vec<i64> = Vec::new();
+    let mut tuple_vec_2: Vec<i64> = Vec::new();
+    let mut pairs_of_tuples_to_check: Vec<(i64, i64)> = Vec::new();
+    // Now iterate through each value in both tuples.
+    for index in 1..=len_1 {
+        let val_1 = unsafe { *addr_1.offset(index.try_into().expect("runtime tuple structural equality error")) };
+        let val_2 = unsafe { *addr_2.offset(index.try_into().expect("runtime tuple structural equality error")) };
+        // Let's get the simple cases out.
+        // If the type tags differ, they're different.
+        if val_1 & 0b11 != val_2 & 0b11 {
+            return FALSE
+        }
+        // At this point, the type tags are identical.
+        // If the two elements are NOT tuples, check for simple equality.
+        if val_1 & 0b11 != 1 {
+            if val_1 != val_2 {
+                return FALSE
+            }
+        }
+
+        // At this point, the only possible situation is that both elements are tuples. Add them to the pairs
+        // of tuples to check.
+        pairs_of_tuples_to_check.push((val_1, val_2));
+
+        // Regardless, add each value to the vectors we're storing.
+        tuple_vec_1.push(val_1);
+        tuple_vec_2.push(val_2);
+    }
+    // At this point, the tuples seem equal. We'll want to check if we've done this comparison before.
+    // If we have, then that must mean we're reached a cyclic position in our structure and thus can easily
+    // return TRUE without worries.
+    if traversed_values.contains(&(tuple_vec_1.clone(), tuple_vec_2.clone())) {
+        return TRUE
+    }
+
+    // Otherwise, add our current tuple to the set of traversed values and recurse with the pairs of tuples
+    // we have to check. If any fail, our entire comparison fails.
+    traversed_values.insert((tuple_vec_1, tuple_vec_2));
+    for pair in pairs_of_tuples_to_check {
+        if snek_compare_tuples(pair.0, pair.1, traversed_values) == FALSE {
+            return FALSE
+        }
+    }
+
+    // If by this point nothing returned false, they're equal!
+    return TRUE
+}
+
 #[export_name = "\x01snek_tuple_equal"]
 pub extern "C" fn snek_tuple_equal(tuple_1: i64, tuple_2: i64) -> i64 {
-    return 7;
+    let mut seen = HashSet::<(Vec<i64>, Vec<i64>)>::new();
+    snek_compare_tuples(tuple_1, tuple_2, &mut seen)
 }
 
 #[export_name = "\x01snek_print"]
