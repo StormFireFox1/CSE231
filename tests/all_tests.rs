@@ -196,6 +196,21 @@ success_tests! {
         file: "cycle-equal3.snek",
         expected: "false\ntrue"
     },
+    {
+        name: cyclic_print_1,
+        file: "cycle-print1.snek",
+        expected: "(tuple 1 (tuple ...) 3)"
+    },
+    {
+        name: cyclic_print_2,
+        file: "cycle-print2.snek",
+        expected: "(tuple 1 (tuple 3 (tuple true (tuple ...) (tuple ...)) 4) 2)"
+    },
+    {
+        name: cyclic_print_3,
+        file: "cycle-print3.snek",
+        expected: "(tuple 1 (tuple 1 (tuple 2 (tuple ...))) 3)",
+    }
 }
 
 runtime_error_tests! {

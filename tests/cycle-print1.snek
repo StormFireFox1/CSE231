@@ -1,0 +1,4 @@
+(let ((x (tuple 1 2 3))) (block
+    (update! x 1 x)
+    x
+))

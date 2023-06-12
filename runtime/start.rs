@@ -39,7 +39,7 @@ fn snek_str(val: i64, seen : &mut HashSet<i64>) -> String {
     else if val & 0b11 == 0 { format!("{}", val >> 2) }
     else if val == 1 { "nil".to_string() }
     else if val & 0b11 == 1 {
-      if seen.contains(&val)  { return "(tuple <cyclic>)".to_string() }
+      if seen.contains(&val)  { return "(tuple ...)".to_string() }
       seen.insert(val);
       let addr = (val - 1) as *const i64;
       let size = unsafe { *addr } >> 2;
