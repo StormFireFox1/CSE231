@@ -1,0 +1,6 @@
+(let ((x (tuple 1 (tuple 3 4 (tuple 5 6 nil)) 2)) (y (tuple 1 (tuple 3 4 (tuple 5 6 (tuple 1 nil 2))) 2))) (block
+    (update! (index (index x 1) 2) 2 x)
+    (update! (index (index (index y 1) 2) 2) 1 (index y 1))
+    (print (= x y))
+    (== x y)
+))

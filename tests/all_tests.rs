@@ -180,7 +180,22 @@ success_tests! {
         name: tuple_equal,
         file: "tuple_equal.snek",
         expected: "true\ntrue\nfalse\ntrue\nfalse\ntrue"
-    }
+    },
+    {
+        name: cyclic_structural_equality_1,
+        file: "cycle-equal1.snek",
+        expected: "false\ntrue"
+    },
+    {
+        name: cyclic_structural_equality_2,
+        file: "cycle-equal2.snek",
+        expected: "false\ntrue"
+    },
+    {
+        name: cyclic_structural_equality_3,
+        file: "cycle-equal3.snek",
+        expected: "false\ntrue"
+    },
 }
 
 runtime_error_tests! {
